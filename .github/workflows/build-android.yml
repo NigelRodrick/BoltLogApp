@@ -32,7 +32,3 @@ jobs:
         with:
           name: boltlog-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-<<<<<<< HEAD
-=======
-
->>>>>>> cb8b7a6 (Initial commit for GitHub build)
