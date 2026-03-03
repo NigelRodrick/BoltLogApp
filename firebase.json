@@ -1,0 +1,34 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "boltlog",
+          "appId": "1:28158895372:android:68b0b92acbc191e3719529",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "boltlog",
+          "configurations": {
+            "android": "1:28158895372:android:68b0b92acbc191e3719529",
+            "ios": "1:28158895372:ios:d081681c891266ed719529",
+            "macos": "1:28158895372:ios:d081681c891266ed719529",
+            "web": "1:28158895372:web:eda905124ed85a63719529",
+            "windows": "1:28158895372:web:ad5ae34939b05be2719529"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": {
+    "source": "functions"
+  }
+}
