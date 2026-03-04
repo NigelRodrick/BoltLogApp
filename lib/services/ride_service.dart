@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../config/testing_flags.dart';
 import 'package:flutter/foundation.dart';
 import '../models/ride_model.dart';
 import '../models/user_model.dart';
@@ -449,7 +451,10 @@ class RideService {
         final verificationStatus =
             (userData['verificationStatus'] as String? ?? '').toLowerCase();
 
-        if (userRole == driverRole &&
+        final relaxVerification = TestingFlags.relaxTransporterVerification;
+
+        if (!relaxVerification &&
+            userRole == driverRole &&
             !allowedVerifiedStatuses.contains(verificationStatus)) {
           throw Exception(
               'Your documents are still being verified. You cannot accept this request yet.');
@@ -719,7 +724,9 @@ class RideService {
       final role = (userData['role'] as String? ?? '').toLowerCase();
       final verificationStatus =
           (userData['verificationStatus'] as String? ?? '').toLowerCase();
-      if (role == 'driver' &&
+
+      if (!TestingFlags.relaxTransporterVerification &&
+          role == 'driver' &&
           verificationStatus != 'auto_verified' &&
           verificationStatus != 'verified') {
         throw Exception(

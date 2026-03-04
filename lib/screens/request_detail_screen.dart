@@ -10,6 +10,7 @@ import '../services/ride_service.dart';
 import '../services/user_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
+import '../config/testing_flags.dart';
 import 'active_ride_map_screen.dart';
 import 'chat_screen.dart';
 
@@ -101,7 +102,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             final isDriver = (userModel?.role ?? '').toLowerCase() == 'driver';
             final verificationStatus = (userModel?.verificationStatus ?? 'pending').toLowerCase();
             final isVerified = verificationStatus == 'auto_verified' || verificationStatus == 'verified';
-            final canActAsTransporter = !isDriver || isVerified;
+            final canActAsTransporter =
+                TestingFlags.relaxTransporterVerification || !isDriver || isVerified;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
