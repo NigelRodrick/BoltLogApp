@@ -13,6 +13,7 @@ import '../services/image_service.dart';
 import '../services/storage_service.dart';
 import '../models/user_model.dart';
 import '../constants/app_constants.dart';
+import '../config/testing_flags.dart';
 import 'main_navigation.dart';
 import 'transporter_navigation.dart';
 
@@ -168,8 +169,8 @@ class _SignupScreenState extends State<SignupScreen> {
       }
     }
 
-    // Validate images for drivers
-    if (_selectedRole == 'Driver') {
+    // Validate images for drivers (skip when relax flag is enabled)
+    if (_selectedRole == 'Driver' && !TestingFlags.relaxTransporterVerification) {
       if (_carBookImage == null || _carBookImageBytes == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -230,7 +231,7 @@ class _SignupScreenState extends State<SignupScreen> {
       String? driverLicenseImageUrl;
       String? selfieImageUrl;
       
-      if (_selectedRole == 'Driver') {
+      if (_selectedRole == 'Driver' && !TestingFlags.relaxTransporterVerification) {
         setState(() {
           _isUploadingImages = true;
         });
