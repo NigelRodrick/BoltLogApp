@@ -714,6 +714,37 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ),
                 ),
               ],
+              // Chat with counterparty (after negotiation started or ride accepted)
+              if ((ride.driverId != null || ride.acceptedTransporterId != null)) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(ride: ride),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.chat, size: 20),
+                    label: Text(
+                      isTransporter ? 'Chat with Sender' : 'Chat with Transporter',
+                      style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF2563EB),
+                      side: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
             ],
           ),

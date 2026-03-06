@@ -1,0 +1,27 @@
+# Deploy Firestore rules when firestore.rules changes or on manual run.
+# One-time setup: In repo Settings → Secrets → Actions, add FIREBASE_TOKEN.
+# Get token by running locally: npx firebase login:ci
+name: Deploy Firestore rules
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'firestore.rules'
+
+jobs:
+  deploy-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Firestore rules
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only firestore
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

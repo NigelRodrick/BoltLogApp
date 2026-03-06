@@ -1,7 +1,8 @@
 class RideModel {
   final String? id;
   final String userId; // Sender/Customer
-  final String? driverId; // Transporter
+  final String? driverId; // Transporter (set when they accept the ride)
+  final String? acceptedTransporterId; // Transporter in negotiation (set when sender accepts their offer)
   final String pickupLocation;
   final String dropoffLocation;
   final double? pickupLat;
@@ -30,6 +31,7 @@ class RideModel {
     this.id,
     required this.userId,
     this.driverId,
+    this.acceptedTransporterId,
     required this.pickupLocation,
     required this.dropoffLocation,
     this.pickupLat,
@@ -76,10 +78,8 @@ class RideModel {
       'priceStatus': priceStatus,
       'senderPaymentMethod': senderPaymentMethod,
     };
-    // Only include driverId if it's not null (to avoid Firestore storing null explicitly)
-    if (driverId != null) {
-      map['driverId'] = driverId;
-    }
+    if (driverId != null) map['driverId'] = driverId;
+    if (acceptedTransporterId != null) map['acceptedTransporterId'] = acceptedTransporterId;
     return map;
   }
 
@@ -88,6 +88,7 @@ class RideModel {
       id: id,
       userId: map['userId'] ?? '',
       driverId: map['driverId'],
+      acceptedTransporterId: map['acceptedTransporterId'],
       pickupLocation: map['pickupLocation'] ?? '',
       dropoffLocation: map['dropoffLocation'] ?? '',
       pickupLat: map['pickupLat']?.toDouble(),

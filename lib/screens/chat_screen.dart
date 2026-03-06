@@ -31,11 +31,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
+    // Sender chats with driver (or accepted transporter during negotiation)
     final receiverId = currentUser.uid == widget.ride.userId
-        ? widget.ride.driverId
+        ? (widget.ride.driverId ?? widget.ride.acceptedTransporterId)
         : widget.ride.userId;
 
-    if (receiverId == null) {
+    if (receiverId == null || receiverId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No transporter assigned yet'),
@@ -131,8 +132,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemBuilder: (context, index) {
                       final message = messages[index];
                       final isMe = message.senderId == currentUser?.uid;
-                      final isTransporter =
-                          message.senderId == widget.ride.driverId;
+                      final transporterId = widget.ride.driverId ?? widget.ride.acceptedTransporterId;
+                      final isTransporter = transporterId != null && message.senderId == transporterId;
 
                       // When sender is chatting with transporter, show a truck
                       // avatar for messages coming from the transporter.

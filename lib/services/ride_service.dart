@@ -918,17 +918,14 @@ class RideService {
           // Update ride with accepted counter-offer
           // When sender accepts, set priceStatus to 'accepted' but keep status as 'pending'
           // Transporter must then accept the ride to proceed
-          final rideSnapData = rideSnap.data() as Map<String, dynamic>;
           final updateData = <String, dynamic>{
             'price': counterOffer,
             'counterOffer': null,
             'priceStatus': 'accepted', // Sender approved the negotiated amount
             'status': 'pending', // Keep as pending until transporter accepts ride
+            'acceptedTransporterId': transporterId, // So sender can chat with transporter before Accept
             'updatedAt': DateTime.now().toIso8601String(),
           };
-          
-          // Don't set driverId yet - transporter must accept ride after sender approves
-          
           transaction.update(rideRef, updateData);
 
           // Mark this offer as selected
