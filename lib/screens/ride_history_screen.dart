@@ -7,8 +7,15 @@ import 'active_ride_tracking_screen.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
 
-class RideHistoryScreen extends StatelessWidget {
+class RideHistoryScreen extends StatefulWidget {
   const RideHistoryScreen({super.key});
+
+  @override
+  State<RideHistoryScreen> createState() => _RideHistoryScreenState();
+}
+
+class _RideHistoryScreenState extends State<RideHistoryScreen> {
+  List<RideModel>? _cachedCompletedRides;
 
   String _getStatusColor(String status) {
     switch (status) {
@@ -94,11 +101,14 @@ class RideHistoryScreen extends StatelessWidget {
             rides.where((ride) => ride.status == 'completed').toList()
           ),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.data != null) _cachedCompletedRides = snapshot.data;
+            final rides = snapshot.data ?? _cachedCompletedRides ?? [];
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                rides.isEmpty) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (snapshot.hasError) {
+            if (snapshot.hasError && rides.isEmpty) {
               return Center(
                 child: Text(
                   'Error: ${snapshot.error}',
@@ -106,8 +116,6 @@ class RideHistoryScreen extends StatelessWidget {
                 ),
               );
             }
-
-            final rides = snapshot.data ?? [];
 
             if (rides.isEmpty) {
               return Center(

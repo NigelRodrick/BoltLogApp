@@ -610,14 +610,42 @@ class RideService {
     }
   }
 
-  // Mark as picked up / parcel collected
+  // Mark as picked up / parcel collected (notify sender so both see status)
   Future<void> markPickedUp(String rideId) async {
     await updateRideStatus(rideId, 'parcel_collected');
+    try {
+      final rideDoc = await _firestore.collection('rides').doc(rideId).get();
+      final userId = rideDoc.data()?['userId'] as String?;
+      if (userId != null) {
+        final notificationService = NotificationService();
+        await notificationService.createNotification(
+          userId: userId,
+          type: 'parcel_collected',
+          title: 'Parcel Collected',
+          message: 'Your parcel has been collected. Driver is on the way to deliver.',
+          rideId: rideId,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error notifying sender of parcel collected: $e');
+    }
   }
 
   // Mark as delivered
   Future<void> markDelivered(String rideId) async {
     await updateRideStatus(rideId, 'completed');
+  }
+
+  // Track when the sender views the request (so transporter can see "Sender has viewed")
+  Future<void> updateSenderLastViewed(String rideId) async {
+    try {
+      await _firestore.collection('rides').doc(rideId).update({
+        'senderLastViewedAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      // Silently fail - not critical
+    }
   }
 
   // Track when a transporter views a request
@@ -741,11 +769,12 @@ class RideService {
       final rideData = rideDoc.data() as Map<String, dynamic>;
       final senderId = rideData['userId'] as String?;
       
-      // Update the ride with counter-offer, set price status to pending, and change ride status to 'pending'
+      // Update the ride with counter-offer; transporter sent last so sender is viewing / waiting for reply
       await _firestore.collection('rides').doc(rideId).update({
         'counterOffer': counterOffer,
         'priceStatus': 'pending',
-        'status': 'pending', // Mark ride as in negotiation
+        'status': 'pending',
+        'lastCounterOfferBy': 'transporter',
         'updatedAt': DateTime.now().toIso8601String(),
       });
 
@@ -871,11 +900,12 @@ class RideService {
             throw Exception('Transporter ID not found in offer');
           }
 
-          // Update ride with sender's counter-offer - keep status as 'pending' (negotiation continues)
+          // Update ride with sender's counter-offer; sender sent last so waiting for transporter
           transaction.update(rideRef, {
             'counterOffer': senderCounterOffer,
             'priceStatus': 'pending',
-            'status': 'pending', // Keep in negotiation
+            'status': 'pending',
+            'lastCounterOfferBy': 'sender',
             'updatedAt': DateTime.now().toIso8601String(),
           });
 

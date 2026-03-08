@@ -18,6 +18,19 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final MessagingService _messagingService = MessagingService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  late Stream<MessagesSnapshot> _messageStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _messageStream = _messagingService.streamMessages(widget.ride.id!);
+  }
+
+  void _retryStream() {
+    setState(() {
+      _messageStream = _messagingService.streamMessages(widget.ride.id!);
+    });
+  }
 
   @override
   void dispose() {
@@ -94,10 +107,10 @@ class _ChatScreenState extends State<ChatScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Messages list
+            // Messages list (persists offline; syncs when back online)
             Expanded(
-              child: StreamBuilder<List<MessageModel>>(
-                stream: _messagingService.streamMessages(widget.ride.id!),
+              child: StreamBuilder<MessagesSnapshot>(
+                stream: _messageStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
@@ -105,14 +118,40 @@ class _ChatScreenState extends State<ChatScreen> {
 
                   if (snapshot.hasError) {
                     return Center(
-                      child: Text(
-                        'Error: ${snapshot.error}',
-                        style: GoogleFonts.inter(color: Colors.red),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade600),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Connection issue. Conversation will continue when back online.',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            FilledButton.icon(
+                              onPressed: _retryStream,
+                              icon: const Icon(Icons.refresh, size: 20),
+                              label: const Text('Retry'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   }
 
-                  final messages = snapshot.data ?? [];
+                  final data = snapshot.data;
+                  final messages = data?.messages ?? [];
+                  final isFromCache = data?.isFromCache ?? false;
 
                   if (messages.isEmpty) {
                     return Center(
@@ -126,7 +165,31 @@ class _ChatScreenState extends State<ChatScreen> {
                     );
                   }
 
-                  return ListView.builder(
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (isFromCache)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          color: Colors.amber.shade50,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.sync, size: 16, color: Colors.amber.shade800),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Offline – showing saved messages. Will sync when back online.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: Colors.amber.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      Expanded(
+                        child: ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: messages.length,
                     itemBuilder: (context, index) {
@@ -210,6 +273,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       );
                     },
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),

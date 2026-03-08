@@ -24,6 +24,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final UserService _userService = UserService();
   final RideService _rideService = RideService();
+  List<RideModel>? _cachedUserRides;
 
   Widget _buildSenderProfileProgress(UserModel? userModel) {
     if (userModel == null) return const SizedBox.shrink();
@@ -248,20 +249,62 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Active Orders Section - Show first when app opens
+              // Active Orders – persistent: cache last list, show loading placeholder when waiting
               if (firebaseUser != null)
                 StreamBuilder<List<RideModel>>(
                   stream: _rideService.streamUserRides(firebaseUser.uid),
                   builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox.shrink();
-                    }
+                    if (snapshot.data != null) _cachedUserRides = snapshot.data;
+                    final allRides = snapshot.data ?? _cachedUserRides ?? [];
+                    final activeRides = allRides
+                        .where((ride) =>
+                            ride.status != 'completed' && ride.status != 'cancelled')
+                        .toList();
 
-                    final allRides = snapshot.data ?? [];
-                    // Filter active rides (not completed or cancelled)
-                    final activeRides = allRides.where((ride) => 
-                      ride.status != 'completed' && ride.status != 'cancelled'
-                    ).toList();
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        activeRides.isEmpty) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Active Orders',
+                            style: GoogleFonts.inter(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF1E40AF),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: const Color(0xFF2563EB),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Loading orders…',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    }
 
                     if (activeRides.isEmpty) {
                       return const SizedBox.shrink();
@@ -534,11 +577,39 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? _rideService.streamUserRides(firebaseUser.uid)
                     : null,
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                  if (snapshot.data != null) _cachedUserRides = snapshot.data;
+                  final rides = snapshot.data ?? _cachedUserRides ?? [];
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      rides.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: const Color(0xFF2563EB),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Loading recent deliveries…',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
                   }
-
-                  final rides = snapshot.data ?? [];
                   if (rides.isEmpty) {
                     return Container(
                       padding: const EdgeInsets.all(20),

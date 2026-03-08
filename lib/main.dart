@@ -63,7 +63,8 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     
-    // Enable Firestore offline persistence
+    // Firestore offline persistence must be set before any Firestore use.
+    // Enables cached reads when offline and queued writes that sync when back online.
     try {
       FirebaseFirestore.instance.settings = const Settings(
         persistenceEnabled: true,

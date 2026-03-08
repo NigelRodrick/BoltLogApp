@@ -42,11 +42,12 @@ service cloud.firestore {
       // Only the sender can create their own rides
       allow create: if isAuthenticated() && isValidRideData();
       
-      // Sender can update their own rides; transporter can set themselves as driver when accepting
+      // Sender can update their own rides; transporter can set driver when accepting or update during negotiation
       allow update: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         (request.resource.data.driverId == request.auth.uid &&
-         (resource.data.driverId == null || resource.data.driverId == request.auth.uid))
+         (resource.data.driverId == null || resource.data.driverId == request.auth.uid)) ||
+        (resource.data.status in ['open', 'pending'] && resource.data.userId != request.auth.uid)
       );
       
       // Only sender can delete their own rides

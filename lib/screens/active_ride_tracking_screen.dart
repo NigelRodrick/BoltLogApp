@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
 import '../models/ride_model.dart';
 import '../services/ride_service.dart';
+import '../services/routing_service.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
 
@@ -188,6 +191,17 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
+                // Map: pickup, dropoff, delivery route (persists with streamed currentRide)
+                if (currentRide.driverId != null &&
+                    currentRide.status != 'cancelled' &&
+                    currentRide.status != 'open' &&
+                    currentRide.status != 'pending')
+                  _SenderTrackingMap(ride: currentRide, status: status),
+                if (currentRide.driverId != null &&
+                    currentRide.status != 'cancelled' &&
+                    currentRide.status != 'open' &&
+                    currentRide.status != 'pending')
+                  const SizedBox(height: 20),
                 // Package Details
                 if (currentRide.packageDescription != null) ...[
                   Text(
@@ -579,6 +593,221 @@ class ActiveRideTrackingScreen extends StatelessWidget {
             );
           }).toList(),
         ),
+      ),
+    );
+  }
+}
+
+/// Persistent map for sender: shows pickup, dropoff, and delivery route (Google Directions).
+class _SenderTrackingMap extends StatefulWidget {
+  final RideModel ride;
+  final String status;
+
+  const _SenderTrackingMap({required this.ride, required this.status});
+
+  @override
+  State<_SenderTrackingMap> createState() => _SenderTrackingMapState();
+}
+
+class _SenderTrackingMapState extends State<_SenderTrackingMap> {
+  GoogleMapController? _controller;
+  Set<Marker> _markers = {};
+  Set<Polyline> _polylines = {};
+  double? _pickupLat;
+  double? _pickupLng;
+  double? _dropoffLat;
+  double? _dropoffLng;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoordsAndRoute();
+  }
+
+  Future<void> _loadCoordsAndRoute() async {
+    double? pickupLat = widget.ride.pickupLat;
+    double? pickupLng = widget.ride.pickupLng;
+    double? dropoffLat = widget.ride.dropoffLat;
+    double? dropoffLng = widget.ride.dropoffLng;
+
+    if (pickupLat == null || pickupLng == null) {
+      try {
+        final locs = await locationFromAddress(widget.ride.pickupLocation);
+        if (locs.isNotEmpty) {
+          pickupLat = locs.first.latitude;
+          pickupLng = locs.first.longitude;
+        }
+      } catch (e) {
+        if (mounted) setState(() { _error = 'Pickup address could not be found.'; _loading = false; });
+        return;
+      }
+    }
+    if (dropoffLat == null || dropoffLng == null) {
+      try {
+        final locs = await locationFromAddress(widget.ride.dropoffLocation);
+        if (locs.isNotEmpty) {
+          dropoffLat = locs.first.latitude;
+          dropoffLng = locs.first.longitude;
+        }
+      } catch (e) {
+        if (mounted) setState(() { _error = 'Delivery address could not be found.'; _loading = false; });
+        return;
+      }
+    }
+
+    if (pickupLat == null || pickupLng == null || dropoffLat == null || dropoffLng == null) {
+      if (mounted) setState(() { _loading = false; });
+      return;
+    }
+
+    setState(() {
+      _pickupLat = pickupLat;
+      _pickupLng = pickupLng;
+      _dropoffLat = dropoffLat;
+      _dropoffLng = dropoffLng;
+    });
+
+    try {
+      final routingService = RoutingService();
+      final route = await routingService.getRoute(
+        originLat: pickupLat,
+        originLng: pickupLng,
+        destLat: dropoffLat,
+        destLng: dropoffLng,
+        includeTraffic: false,
+      );
+      if (route != null && mounted) {
+        setState(() {
+          _polylines = {
+            Polyline(
+              polylineId: const PolylineId('delivery_route'),
+              points: route.points,
+              color: const Color(0xFF2563EB),
+              width: 4,
+            ),
+          };
+        });
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _markers = {
+          Marker(
+            markerId: const MarkerId('pickup'),
+            position: LatLng(pickupLat!, pickupLng!),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+            infoWindow: InfoWindow(title: 'Pickup', snippet: widget.ride.pickupLocation),
+          ),
+          Marker(
+            markerId: const MarkerId('dropoff'),
+            position: LatLng(dropoffLat!, dropoffLng!),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            infoWindow: InfoWindow(title: 'Delivery', snippet: widget.ride.dropoffLocation),
+          ),
+        };
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
+              const SizedBox(width: 12),
+              Expanded(child: Text(_error!, style: GoogleFonts.inter(color: Colors.grey.shade700))),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final statusLabel = widget.status == 'parcel_collected'
+        ? 'Parcel collected – Driver on the way to deliver'
+        : widget.status == 'completed'
+            ? 'Delivered'
+            : 'Driver on the way to collect your parcel';
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: const Color(0xFF1E40AF).withOpacity(0.08),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.map, color: const Color(0xFF2563EB), size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    statusLabel,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E40AF),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 220,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _pickupLat == null || _dropoffLat == null
+                    ? const Center(child: Text('Unable to show map'))
+                    : GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: LatLng(_pickupLat!, _pickupLng!),
+                          zoom: 12,
+                        ),
+                        onMapCreated: (c) {
+                          _controller = c;
+                          if (_pickupLat != null && _dropoffLat != null) {
+                            final minLat = _pickupLat! < _dropoffLat! ? _pickupLat! : _dropoffLat!;
+                            final maxLat = _pickupLat! > _dropoffLat! ? _pickupLat! : _dropoffLat!;
+                            final minLng = _pickupLng! < _dropoffLng! ? _pickupLng! : _dropoffLng!;
+                            final maxLng = _pickupLng! > _dropoffLng! ? _pickupLng! : _dropoffLng!;
+                            _controller?.animateCamera(
+                              CameraUpdate.newLatLngBounds(
+                                LatLngBounds(
+                                  southwest: LatLng(minLat, minLng),
+                                  northeast: LatLng(maxLat, maxLng),
+                                ),
+                                48,
+                              ),
+                            );
+                          }
+                        },
+                        markers: _markers,
+                        polylines: _polylines,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: true,
+                        mapType: MapType.normal,
+                      ),
+          ),
+        ],
       ),
     );
   }

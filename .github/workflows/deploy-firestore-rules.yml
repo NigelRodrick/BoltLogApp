@@ -19,9 +19,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for FIREBASE_TOKEN
+        id: has-token
+        run: |
+          if [ -n "${{ secrets.FIREBASE_TOKEN }}" ]; then
+            echo "defined=true" >> $GITHUB_OUTPUT
+          else
+            echo "defined=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Deploy Firestore rules
+        if: steps.has-token.outputs.defined == 'true'
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only firestore
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: Skip (no FIREBASE_TOKEN)
+        if: steps.has-token.outputs.defined == 'false'
+        run: |
+          echo "FIREBASE_TOKEN secret not set. Skipping deploy."
+          echo "To deploy from CI: add FIREBASE_TOKEN in repo Settings → Secrets → Actions (get it with: npx firebase login:ci)"
+          echo "Or deploy locally: npx firebase-tools login && npx firebase-tools deploy --only firestore"

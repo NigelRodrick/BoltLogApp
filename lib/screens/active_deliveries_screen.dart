@@ -7,8 +7,15 @@ import '../widgets/active_deliveries_map.dart';
 import 'ride_route_screen.dart';
 import 'chat_screen.dart';
 
-class ActiveDeliveriesScreen extends StatelessWidget {
+class ActiveDeliveriesScreen extends StatefulWidget {
   const ActiveDeliveriesScreen({super.key});
+
+  @override
+  State<ActiveDeliveriesScreen> createState() => _ActiveDeliveriesScreenState();
+}
+
+class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
+  List<RideModel>? _cachedDeliveries;
 
   Color _getStatusColor(String status) {
     switch (status) {
@@ -96,11 +103,14 @@ class ActiveDeliveriesScreen extends StatelessWidget {
         child: StreamBuilder<List<RideModel>>(
           stream: rideService.streamTransporterDeliveries(user.uid),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.data != null) _cachedDeliveries = snapshot.data;
+            final deliveries = snapshot.data ?? _cachedDeliveries ?? [];
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                deliveries.isEmpty) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (snapshot.hasError) {
+            if (snapshot.hasError && deliveries.isEmpty) {
               return Center(
                 child: Text(
                   'Error: ${snapshot.error}',
@@ -108,8 +118,6 @@ class ActiveDeliveriesScreen extends StatelessWidget {
                 ),
               );
             }
-
-            final deliveries = snapshot.data ?? [];
 
             if (deliveries.isEmpty) {
               return Center(

@@ -24,6 +24,8 @@ class RideModel {
   // Price negotiation
   final double? counterOffer; // Transporter's counter-offer
   final String? priceStatus; // 'pending', 'accepted', 'rejected'
+  final String? lastCounterOfferBy; // 'sender' or 'transporter' - who sent the last counter-offer
+  final String? senderLastViewedAt; // When sender last viewed the request (ISO8601)
   // Payment method for sender to pay transporter
   final String? senderPaymentMethod; // 'cash' or 'ecocash' - how sender will pay transporter
 
@@ -51,6 +53,8 @@ class RideModel {
     this.estimatedValue,
     this.counterOffer,
     this.priceStatus,
+    this.lastCounterOfferBy,
+    this.senderLastViewedAt,
     this.senderPaymentMethod,
   });
 
@@ -79,6 +83,8 @@ class RideModel {
       'senderPaymentMethod': senderPaymentMethod,
     };
     if (driverId != null) map['driverId'] = driverId;
+    if (lastCounterOfferBy != null) map['lastCounterOfferBy'] = lastCounterOfferBy;
+    if (senderLastViewedAt != null) map['senderLastViewedAt'] = senderLastViewedAt;
     if (acceptedTransporterId != null) map['acceptedTransporterId'] = acceptedTransporterId;
     return map;
   }
@@ -108,6 +114,8 @@ class RideModel {
       estimatedValue: map['estimatedValue']?.toDouble(),
       counterOffer: map['counterOffer']?.toDouble(),
       priceStatus: map['priceStatus'],
+      lastCounterOfferBy: map['lastCounterOfferBy'],
+      senderLastViewedAt: map['senderLastViewedAt'],
       senderPaymentMethod: map['senderPaymentMethod'],
     );
   }

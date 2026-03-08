@@ -24,6 +24,7 @@ class TransporterViewersScreen extends StatefulWidget {
 class _TransporterViewersScreenState extends State<TransporterViewersScreen> {
   final RideService _rideService = RideService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  RideModel? _cachedRide;
 
   @override
   Widget build(BuildContext context) {
@@ -46,13 +47,45 @@ class _TransporterViewersScreenState extends State<TransporterViewersScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Ride summary
+            // Request details: persist last loaded ride so UI doesn't disappear on stream flicker
             StreamBuilder<RideModel?>(
               stream: _rideService.streamRideById(widget.rideId),
               builder: (context, snapshot) {
-                final ride = snapshot.data;
+                if (snapshot.data != null) _cachedRide = snapshot.data;
+                final ride = snapshot.data ?? _cachedRide;
                 if (ride == null) {
-                  return const SizedBox.shrink();
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: const Color(0xFF2563EB),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Loading request details…',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 return Container(
                   width: double.infinity,
@@ -99,6 +132,35 @@ class _TransporterViewersScreenState extends State<TransporterViewersScreen> {
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                             color: const Color(0xFF2563EB),
+                          ),
+                        ),
+                      ],
+                      // Persistent status: sender sent counter-offer, waiting for transporter
+                      if (ride.status == 'pending' && ride.priceStatus == 'pending' && ride.lastCounterOfferBy == 'sender') ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.schedule, size: 18, color: Colors.amber.shade800),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Waiting for transporter to respond',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.amber.shade900,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],

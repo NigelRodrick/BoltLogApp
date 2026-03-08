@@ -41,12 +41,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   void _trackView() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null && widget.ride.id != null) {
-      try {
+    if (user == null || widget.ride.id == null) return;
+    try {
+      if (user.uid == widget.ride.userId) {
+        await _rideService.updateSenderLastViewed(widget.ride.id!);
+      } else {
         await _rideService.trackRequestView(widget.ride.id!, user.uid);
-      } catch (e) {
-        // Silently fail
       }
+    } catch (e) {
+      // Silently fail
     }
   }
 
@@ -71,7 +74,6 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ride = widget.ride;
     final user = FirebaseAuth.instance.currentUser;
     final transporterId = user?.uid ?? '';
 
@@ -93,8 +95,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           ),
         ),
       ),
-      body: SafeArea(
-        child: StreamBuilder<UserModel?>(
+      // Persist request details: stream live ride, fallback to initial so details don't disappear
+      body: StreamBuilder<RideModel?>(
+        stream: widget.ride.id != null
+            ? _rideService.streamRideById(widget.ride.id!)
+            : Stream.value(widget.ride),
+        builder: (context, rideSnap) {
+          final ride = rideSnap.data ?? widget.ride;
+          return SafeArea(
+            child: StreamBuilder<UserModel?>(
           stream: user != null ? _userService.streamUser(user!.uid) : Stream.value(null),
           builder: (context, userSnap) {
             final userModel = userSnap.data;
@@ -104,12 +113,76 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             final isVerified = verificationStatus == 'auto_verified' || verificationStatus == 'verified';
             final canActAsTransporter =
                 TestingFlags.relaxTransporterVerification || !isDriver || isVerified;
+            bool senderViewedRecently = false;
+            if (ride.senderLastViewedAt != null) {
+              try {
+                final viewedAt = DateTime.parse(ride.senderLastViewedAt!);
+                senderViewedRecently = DateTime.now().difference(viewedAt).inMinutes <= 10;
+              } catch (_) {}
+            }
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+              // Negotiation status (persistent: transporter sees sender viewing / viewed)
+              if (isTransporter && ride.status == 'pending' && ride.priceStatus == 'pending') ...[
+                if (ride.lastCounterOfferBy == 'transporter')
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.schedule, color: Colors.amber.shade800, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Sender viewing, waiting for reply',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (senderViewedRecently)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.visibility, color: Colors.blue.shade800, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Sender has viewed',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
               // Package Description
               if (ride.packageDescription != null) ...[
                 Container(
@@ -751,6 +824,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         );
           },
         ),
+          );
+        },
       ),
     );
   }

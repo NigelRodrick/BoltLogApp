@@ -26,6 +26,7 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
   List<RideModel> _rides = [];
+  List<RideModel>? _cachedRides;
 
   @override
   void initState() {
@@ -122,11 +123,14 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
             return StreamBuilder<List<RideModel>>(
               stream: rideService.streamAvailableRides(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.data != null) _cachedRides = snapshot.data;
+                final rides = snapshot.data ?? _cachedRides ?? [];
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    rides.isEmpty) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (snapshot.hasError) {
+                if (snapshot.hasError && rides.isEmpty) {
                   return Center(
                     child: Text(
                       'Error: ${snapshot.error}',
@@ -134,8 +138,6 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                     ),
                   );
                 }
-
-                final rides = snapshot.data ?? [];
 
                 // Filter requests by driver's vehicle/transport type
                 List<RideModel> filteredRides = rides;

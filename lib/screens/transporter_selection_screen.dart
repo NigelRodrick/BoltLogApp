@@ -8,13 +8,35 @@ import '../models/transporter_offer_model.dart';
 import '../models/user_model.dart';
 import '../services/ride_service.dart';
 
-class TransporterSelectionScreen extends StatelessWidget {
+class TransporterSelectionScreen extends StatefulWidget {
   final String rideId;
 
   const TransporterSelectionScreen({
     super.key,
     required this.rideId,
   });
+
+  @override
+  State<TransporterSelectionScreen> createState() => _TransporterSelectionScreenState();
+}
+
+class _TransporterSelectionScreenState extends State<TransporterSelectionScreen> {
+  RideModel? _cachedRide;
+  List<TransporterOfferModel>? _cachedOffers;
+  bool _senderViewRecorded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // When sender opens this screen, record view so transporter can see "Sender has viewed"
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_senderViewRecorded) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      _senderViewRecorded = true;
+      RideService().updateSenderLastViewed(widget.rideId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,13 +60,45 @@ class TransporterSelectionScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // Ride summary
+            // Request details: persist last loaded ride (orders in negotiating)
             StreamBuilder<RideModel?>(
-              stream: rideService.streamRideById(rideId),
+              stream: rideService.streamRideById(widget.rideId),
               builder: (context, snapshot) {
-                final ride = snapshot.data;
+                if (snapshot.data != null) _cachedRide = snapshot.data;
+                final ride = snapshot.data ?? _cachedRide;
                 if (ride == null) {
-                  return const SizedBox.shrink();
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: const Color(0xFF2563EB),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Loading request details…',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 final isOwner = currentUser?.uid == ride.userId;
                 return Container(
@@ -95,6 +149,35 @@ class TransporterSelectionScreen extends StatelessWidget {
                           ),
                         ),
                       ],
+                      // Persistent status: sender sent counter-offer, waiting for transporter
+                      if (isOwner && ride.status == 'pending' && ride.priceStatus == 'pending' && ride.lastCounterOfferBy == 'sender') ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.schedule, size: 18, color: Colors.amber.shade800),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Waiting for transporter to respond',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.amber.shade900,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (!isOwner) ...[
                         const SizedBox(height: 8),
                         Text(
@@ -112,13 +195,14 @@ class TransporterSelectionScreen extends StatelessWidget {
             ),
             Expanded(
               child: StreamBuilder<List<TransporterOfferModel>>(
-                stream: rideService.streamOffersForRide(rideId),
+                stream: rideService.streamOffersForRide(widget.rideId),
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
+                  if (snapshot.data != null) _cachedOffers = snapshot.data;
+                  final offers = snapshot.data ?? _cachedOffers ?? [];
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      offers.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
-
-                  final offers = snapshot.data ?? [];
 
                   if (offers.isEmpty) {
                     return Center(
@@ -161,7 +245,7 @@ class TransporterSelectionScreen extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final offer = offers[index];
                       return _OfferCard(
-                        rideId: rideId,
+                        rideId: widget.rideId,
                         offer: offer,
                       );
                     },
@@ -634,6 +718,7 @@ class _OfferCardState extends State<_OfferCard> {
     
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Text(
           'Make Counter-Offer',

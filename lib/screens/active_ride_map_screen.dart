@@ -36,6 +36,7 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
   bool _isCollecting = false;
   bool _isDelivering = false;
   bool _isParcelCollected = false; // Track if parcel is already collected
+  RideModel? _currentRide; // Streamed ride so map persists across status updates
   Timer? _locationTimer;
   final RideService _rideService = RideService();
   final PaymentService _paymentService = PaymentService();
@@ -246,7 +247,7 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
             infoWindow: InfoWindow(
               title: 'Pickup Location',
-              snippet: widget.ride.pickupLocation,
+              snippet: (_currentRide ?? widget.ride).pickupLocation,
             ),
           ),
         );
@@ -274,7 +275,7 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
             infoWindow: InfoWindow(
               title: 'Delivery Location',
-              snippet: widget.ride.dropoffLocation,
+              snippet: (_currentRide ?? widget.ride).dropoffLocation,
             ),
           ),
         );
@@ -502,9 +503,25 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
           ),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
+      body: StreamBuilder<RideModel?>(
+        stream: _rideService.streamRideById(widget.ride.id!),
+        builder: (context, snapshot) {
+          _currentRide = snapshot.data;
+          final currentRide = _currentRide ?? widget.ride;
+          // Keep UI in sync when status becomes parcel_collected (e.g. from another device)
+          if (currentRide.status == 'parcel_collected' && !_isParcelCollected) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _isParcelCollected = true;
+                });
+                _updateMap();
+              }
+            });
+          }
+          return _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Stack(
               children: [
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
@@ -659,7 +676,7 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                                       ),
                                     ),
                                     Text(
-                                      _isParcelCollected ? widget.ride.dropoffLocation : widget.ride.pickupLocation,
+                                      _isParcelCollected ? currentRide.dropoffLocation : currentRide.pickupLocation,
                                       style: GoogleFonts.inter(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -671,10 +688,10 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                               ),
                             ],
                           ),
-                          if (widget.ride.packageDescription != null) ...[
+                          if (currentRide.packageDescription != null) ...[
                             const SizedBox(height: 8),
                             Text(
-                              widget.ride.packageDescription!,
+                              currentRide.packageDescription!,
                               style: GoogleFonts.inter(
                                 fontSize: 12,
                                 color: Colors.grey.shade700,
@@ -765,7 +782,9 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                     ),
                   ),
               ],
-            ),
+            );
+        },
+      ),
     );
   }
 
