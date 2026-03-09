@@ -138,16 +138,30 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                           color: Colors.grey.shade700,
                         ),
                       ),
-                      if (ride.price != null) ...[
+                      if (ride.price != null || ride.counterOffer != null) ...[
                         const SizedBox(height: 8),
-                        Text(
-                          'Your offer: \$${ride.price!.toStringAsFixed(2)}',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF2563EB),
+                        if (ride.price != null)
+                          Text(
+                            'Your amount: \$${ride.price!.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF2563EB),
+                            ),
                           ),
-                        ),
+                        if (ride.counterOffer != null &&
+                            ride.priceStatus == 'pending' &&
+                            ride.lastCounterOfferBy == 'transporter') ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.amber.shade800,
+                            ),
+                          ),
+                        ],
                       ],
                       // Persistent status: sender sent counter-offer, waiting for transporter
                       if (isOwner && ride.status == 'pending' && ride.priceStatus == 'pending' && ride.lastCounterOfferBy == 'sender') ...[

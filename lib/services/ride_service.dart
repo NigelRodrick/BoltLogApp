@@ -993,6 +993,34 @@ class RideService {
         }
       });
 
+      // If sender accepted the counter-offer, notify transporter so they can take delivery
+      if (accepted) {
+        final offerDoc = await _offerCollection(rideId).doc(offerId).get();
+        final offerData = offerDoc.data();
+        final transporterId = offerData?['transporterId'] as String?;
+
+        if (transporterId != null) {
+          final rideDoc = await _firestore.collection('rides').doc(rideId).get();
+          final rideData = rideDoc.data();
+          final agreedPrice =
+              (rideData?['price'] as num?)?.toDouble() ?? 0.0;
+
+          final notificationService = NotificationService();
+          await notificationService.createNotification(
+            userId: transporterId,
+            type: 'counter_offer_accepted',
+            title: 'Offer Accepted',
+            message:
+                'The sender has accepted your offer of \$${agreedPrice.toStringAsFixed(2)}. You can now accept the delivery request.',
+            rideId: rideId,
+            data: {
+              'price': agreedPrice,
+              'rideId': rideId,
+            },
+          );
+        }
+      }
+
       // If sender sent a counter-offer, notify transporter
       if (senderCounterOffer != null && !accepted) {
         final offerDoc = await _offerCollection(rideId).doc(offerId).get();
@@ -1009,6 +1037,28 @@ class RideService {
             rideId: rideId,
             data: {
               'counterOffer': senderCounterOffer,
+              'rideId': rideId,
+            },
+          );
+        }
+      }
+
+      // If sender declined the counter-offer (no new amount), notify transporter
+      if (!accepted && senderCounterOffer == null) {
+        final offerDoc = await _offerCollection(rideId).doc(offerId).get();
+        final offerData = offerDoc.data();
+        final transporterId = offerData?['transporterId'] as String?;
+
+        if (transporterId != null) {
+          final notificationService = NotificationService();
+          await notificationService.createNotification(
+            userId: transporterId,
+            type: 'counter_offer_declined',
+            title: 'Offer Declined',
+            message:
+                'The sender has declined your offer. This request is now open to other transporters.',
+            rideId: rideId,
+            data: {
               'rideId': rideId,
             },
           );
