@@ -15,6 +15,7 @@ import 'transporter_viewers_screen.dart';
 import 'location_picker_screen.dart';
 import 'saved_locations_screen.dart';
 import 'payment_methods_screen.dart';
+import 'active_ride_tracking_screen.dart';
 
 class RideBookingScreen extends StatefulWidget {
   const RideBookingScreen({super.key});
@@ -279,13 +280,16 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
       final rideId = await _rideService.createRide(ride);
 
       if (mounted) {
+        // Build a ride with ID so tracking screen can stream and persist status
+        final rideWithId = RideModel.fromMap(ride.toMap(), rideId);
+
         ErrorHandlerService.showSuccess(
           context,
           'Transport request created! Waiting for transporters…',
         );
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => TransporterViewersScreen(rideId: rideId),
+            builder: (_) => ActiveRideTrackingScreen(ride: rideWithId),
           ),
         );
       }
