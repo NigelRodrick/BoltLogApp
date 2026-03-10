@@ -22,12 +22,14 @@ class RideModel {
   final String? transportType; // 'bike', 'sedan', 'pickup', 'closed_pickup', 'lorry'
   final double? estimatedValue;
   // Price negotiation
-  final double? counterOffer; // Transporter's counter-offer
+  final double? counterOffer; // Latest negotiated amount
   final String? priceStatus; // 'pending', 'accepted', 'rejected'
   final String? lastCounterOfferBy; // 'sender' or 'transporter' - who sent the last counter-offer
   final String? senderLastViewedAt; // When sender last viewed the request (ISO8601)
   // Payment method for sender to pay transporter
   final String? senderPaymentMethod; // 'cash' or 'ecocash' - how sender will pay transporter
+  // Final agreed amount for this delivery (used for fee calculation)
+  final double? finalPrice;
 
   RideModel({
     this.id,
@@ -56,6 +58,7 @@ class RideModel {
     this.lastCounterOfferBy,
     this.senderLastViewedAt,
     this.senderPaymentMethod,
+    this.finalPrice,
   });
 
   Map<String, dynamic> toMap() {
@@ -81,6 +84,7 @@ class RideModel {
       'counterOffer': counterOffer,
       'priceStatus': priceStatus,
       'senderPaymentMethod': senderPaymentMethod,
+      'finalPrice': finalPrice,
     };
     if (driverId != null) map['driverId'] = driverId;
     if (lastCounterOfferBy != null) map['lastCounterOfferBy'] = lastCounterOfferBy;
@@ -117,6 +121,7 @@ class RideModel {
       lastCounterOfferBy: map['lastCounterOfferBy'],
       senderLastViewedAt: map['senderLastViewedAt'],
       senderPaymentMethod: map['senderPaymentMethod'],
+      finalPrice: map['finalPrice']?.toDouble(),
     );
   }
 }

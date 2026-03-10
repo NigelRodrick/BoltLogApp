@@ -11,6 +11,7 @@ import '../services/user_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
 import '../config/testing_flags.dart';
+import '../utils/negotiation_utils.dart';
 import 'active_ride_map_screen.dart';
 import 'chat_screen.dart';
 
@@ -29,6 +30,26 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   bool _isOffering = false;
   Set<Polyline> _routePolylines = {};
   bool _routeRequested = false;
+  bool _lockNavigation = false;
+
+  void _showNegotiationLockDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Negotiation in progress'),
+        content: const Text(
+          'You have an active negotiation for this delivery. '
+          'Finish or cancel it before leaving this screen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -77,32 +98,47 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     final user = FirebaseAuth.instance.currentUser;
     final transporterId = user?.uid ?? '';
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
+    return WillPopScope(
+      onWillPop: () async {
+        if (_lockNavigation) {
+          _showNegotiationLockDialog();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF1E40AF)),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(
-          'Request Details',
-          style: GoogleFonts.inter(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF1E40AF),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF1E40AF)),
+            onPressed: () {
+              if (_lockNavigation) {
+                _showNegotiationLockDialog();
+              } else {
+                Navigator.of(context).pop();
+              }
+            },
+          ),
+          title: Text(
+            'Request Details',
+            style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF1E40AF),
+            ),
           ),
         ),
-      ),
-      // Persist request details: stream live ride, fallback to initial so details don't disappear
-      body: StreamBuilder<RideModel?>(
-        stream: widget.ride.id != null
-            ? _rideService.streamRideById(widget.ride.id!)
-            : Stream.value(widget.ride),
-        builder: (context, rideSnap) {
-          final ride = rideSnap.data ?? widget.ride;
-          return SafeArea(
+        // Persist request details: stream live ride, fallback to initial so details don't disappear
+        body: StreamBuilder<RideModel?>(
+          stream: widget.ride.id != null
+              ? _rideService.streamRideById(widget.ride.id!)
+              : Stream.value(widget.ride),
+          builder: (context, rideSnap) {
+            final ride = rideSnap.data ?? widget.ride;
+            _lockNavigation = negotiationInProgress(ride);
+            return SafeArea(
             child: StreamBuilder<UserModel?>(
           stream: user != null ? _userService.streamUser(user!.uid) : Stream.value(null),
           builder: (context, userSnap) {

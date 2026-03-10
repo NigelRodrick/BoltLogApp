@@ -928,8 +928,8 @@ class RideService {
           // Check balance before accepting (deduction happens after negotiation)
           final rideSnap = await transaction.get(rideRef);
           final rideData = rideSnap.data() as Map<String, dynamic>;
-          final finalPrice = counterOffer ?? (rideData['price'] as num?)?.toDouble() ?? 0.0;
-          final fee = finalPrice * 0.02;
+          final agreed = counterOffer ?? (rideData['price'] as num?)?.toDouble() ?? 0.0;
+          final fee = agreed * 0.02;
           
           // Check balance
           final userRef = _firestore.collection('users').doc(transporterId);
@@ -950,6 +950,7 @@ class RideService {
           // Transporter must then accept the ride to proceed
           final updateData = <String, dynamic>{
             'price': counterOffer,
+            'finalPrice': counterOffer, // store final agreed amount
             'counterOffer': null,
             'priceStatus': 'accepted', // Sender approved the negotiated amount
             'status': 'pending', // Keep as pending until transporter accepts ride

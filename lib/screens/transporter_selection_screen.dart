@@ -7,6 +7,7 @@ import '../models/ride_model.dart';
 import '../models/transporter_offer_model.dart';
 import '../models/user_model.dart';
 import '../services/ride_service.dart';
+import '../utils/negotiation_utils.dart';
 
 class TransporterSelectionScreen extends StatefulWidget {
   final String rideId;
@@ -24,6 +25,26 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
   RideModel? _cachedRide;
   List<TransporterOfferModel>? _cachedOffers;
   bool _senderViewRecorded = false;
+  bool _lockNavigation = false;
+
+  void _showNegotiationLockDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Negotiation in progress'),
+        content: const Text(
+          'You have an active negotiation for this delivery. '
+          'Finish or cancel it before leaving this screen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -43,22 +64,41 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
     final rideService = RideService();
     final currentUser = FirebaseAuth.instance.currentUser;
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Text(
-          'Choose Transporter',
-          style: GoogleFonts.inter(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFF1E40AF),
+    return WillPopScope(
+      onWillPop: () async {
+        if (_lockNavigation) {
+          _showNegotiationLockDialog();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF1E40AF)),
+            onPressed: () {
+              if (_lockNavigation) {
+                _showNegotiationLockDialog();
+              } else {
+                Navigator.of(context).pop();
+              }
+            },
+          ),
+          title: Text(
+            'Choose Transporter',
+            style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF1E40AF),
+            ),
           ),
         ),
-      ),
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Column(
           children: [
             // Request details: persist last loaded ride (orders in negotiating)
             StreamBuilder<RideModel?>(
@@ -100,6 +140,8 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                     ),
                   );
                 }
+                _lockNavigation = negotiationInProgress(ride);
+
                 final isOwner = currentUser?.uid == ride.userId;
                 return Container(
                   width: double.infinity,
