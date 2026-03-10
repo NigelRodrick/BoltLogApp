@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/message_model.dart';
 import '../models/ride_model.dart';
 import '../services/messaging_service.dart';
+import '../services/ride_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final RideModel ride;
@@ -17,6 +18,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final MessagingService _messagingService = MessagingService();
+  final RideService _rideService = RideService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   late Stream<MessagesSnapshot> _messageStream;
 
@@ -38,16 +40,16 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  Future<void> _sendMessage() async {
+  Future<void> _sendMessage(RideModel currentRide) async {
     if (_messageController.text.trim().isEmpty) return;
 
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
     // Sender chats with driver (or accepted transporter during negotiation)
-    final receiverId = currentUser.uid == widget.ride.userId
-        ? (widget.ride.driverId ?? widget.ride.acceptedTransporterId)
-        : widget.ride.userId;
+    final receiverId = currentUser.uid == currentRide.userId
+        ? (currentRide.driverId ?? currentRide.acceptedTransporterId)
+        : currentRide.userId;
 
     if (receiverId == null || receiverId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -60,7 +62,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final message = MessageModel(
-      rideId: widget.ride.id!,
+      rideId: currentRide.id!,
       senderId: currentUser.uid,
       receiverId: receiverId,
       message: _messageController.text.trim(),
@@ -105,234 +107,238 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Messages list (persists offline; syncs when back online)
-            Expanded(
-              child: StreamBuilder<MessagesSnapshot>(
-                stream: _messageStream,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+        child: StreamBuilder<RideModel?>(
+          stream: widget.ride.id != null
+              ? _rideService.streamRideById(widget.ride.id!)
+              : Stream.value(widget.ride),
+          builder: (context, rideSnap) {
+            final currentRide = rideSnap.data ?? widget.ride;
+            return Column(
+              children: [
+                // Messages list (persists offline; syncs when back online)
+                Expanded(
+                  child: StreamBuilder<MessagesSnapshot>(
+                    stream: _messageStream,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
 
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade600),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Connection issue. Conversation will continue when back online.',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            FilledButton.icon(
-                              onPressed: _retryStream,
-                              icon: const Icon(Icons.refresh, size: 20),
-                              label: const Text('Retry'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  final data = snapshot.data;
-                  final messages = data?.messages ?? [];
-                  final isFromCache = data?.isFromCache ?? false;
-
-                  if (messages.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'No messages yet',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (isFromCache)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          color: Colors.amber.shade50,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.sync, size: 16, color: Colors.amber.shade800),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Offline – showing saved messages. Will sync when back online.',
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: Colors.amber.shade900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      Expanded(
-                        child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      final message = messages[index];
-                      final isMe = message.senderId == currentUser?.uid;
-                      final transporterId = widget.ride.driverId ?? widget.ride.acceptedTransporterId;
-                      final isTransporter = transporterId != null && message.senderId == transporterId;
-
-                      // When sender is chatting with transporter, show a truck
-                      // avatar for messages coming from the transporter.
-                      return Align(
-                        alignment: isMe
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            if (!isMe) ...[
-                              // Avatar for the other side
-                              CircleAvatar(
-                                radius: 16,
-                                backgroundColor: isTransporter
-                                    ? const Color(0xFF2563EB).withOpacity(0.1)
-                                    : Colors.grey.shade200,
-                                child: Icon(
-                                  isTransporter
-                                      ? Icons.local_shipping
-                                      : Icons.person,
-                                  size: 18,
-                                  color: isTransporter
-                                      ? const Color(0xFF2563EB)
-                                      : Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isMe
-                                    ? const Color(0xFF2563EB) // Blue-600
-                                    : Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    message.message,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 14,
-                                      color: isMe
-                                          ? Colors.white
-                                          : const Color(
-                                              0xFF1E40AF), // Blue-700
-                                    ),
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade600),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Connection issue. Conversation will continue when back online.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: Colors.grey.shade700,
                                   ),
-                                  const SizedBox(height: 4),
+                                ),
+                                const SizedBox(height: 20),
+                                FilledButton.icon(
+                                  onPressed: _retryStream,
+                                  icon: const Icon(Icons.refresh, size: 20),
+                                  label: const Text('Retry'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+
+                      final data = snapshot.data;
+                      final messages = data?.messages ?? [];
+                      final isFromCache = data?.isFromCache ?? false;
+
+                      if (messages.isEmpty) {
+                        return Center(
+                          child: Text(
+                            'No messages yet',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (isFromCache)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              color: Colors.amber.shade50,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.sync, size: 16, color: Colors.amber.shade800),
+                                  const SizedBox(width: 8),
                                   Text(
-                                    '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}',
+                                    'Offline – showing saved messages. Will sync when back online.',
                                     style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      color: isMe
-                                          ? Colors.white70
-                                          : Colors.grey.shade600,
+                                      fontSize: 12,
+                                      color: Colors.amber.shade900,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
+                          Expanded(
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: messages.length,
+                              itemBuilder: (context, index) {
+                                final message = messages[index];
+                                final isMe = message.senderId == currentUser?.uid;
+                                final transporterId = currentRide.driverId ?? currentRide.acceptedTransporterId;
+                                final isTransporter = transporterId != null && message.senderId == transporterId;
+
+                                return Align(
+                                  alignment: isMe
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (!isMe) ...[
+                                        CircleAvatar(
+                                          radius: 16,
+                                          backgroundColor: isTransporter
+                                              ? const Color(0xFF2563EB).withOpacity(0.1)
+                                              : Colors.grey.shade200,
+                                          child: Icon(
+                                            isTransporter
+                                                ? Icons.local_shipping
+                                                : Icons.person,
+                                            size: 18,
+                                            color: isTransporter
+                                                ? const Color(0xFF2563EB)
+                                                : Colors.grey.shade700,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      Container(
+                                        margin: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                        constraints: BoxConstraints(
+                                          maxWidth:
+                                              MediaQuery.of(context).size.width * 0.7,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isMe
+                                              ? const Color(0xFF2563EB)
+                                              : Colors.grey.shade200,
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              message.message,
+                                              style: GoogleFonts.inter(
+                                                fontSize: 14,
+                                                color: isMe
+                                                    ? Colors.white
+                                                    : const Color(0xFF1E40AF),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${message.timestamp.hour}:${message.timestamp.minute.toString().padLeft(2, '0')}',
+                                              style: GoogleFonts.inter(
+                                                fontSize: 10,
+                                                color: isMe
+                                                    ? Colors.white70
+                                                    : Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       );
                     },
+                  ),
+                ),
+                // Message input (uses current ride so send works as soon as transporter is set)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade200),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          decoration: InputDecoration(
+                            hintText: 'Type a message...',
+                            hintStyle: GoogleFonts.inter(
+                              color: Colors.grey.shade400,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(24),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF2563EB),
+                                width: 2,
+                              ),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _sendMessage(currentRide),
+                        icon: const Icon(Icons.send, color: Color(0xFF2563EB)),
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB).withOpacity(0.1),
                         ),
                       ),
                     ],
-                  );
-                },
-              ),
-            ),
-            // Message input
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(color: Colors.grey.shade200),
+                  ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        hintText: 'Type a message...',
-                        hintStyle: GoogleFonts.inter(
-                          color: Colors.grey.shade400,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: const BorderSide(
-                            color: const Color(0xFF2563EB), // Blue-600
-                            width: 2,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _sendMessage,
-                    icon: const Icon(Icons.send, color: Color(0xFF2563EB)), // Blue-600
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB).withOpacity(0.1), // Blue-600
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
