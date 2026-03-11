@@ -139,86 +139,107 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             final ride = rideSnap.data ?? widget.ride;
             _lockNavigation = negotiationInProgress(ride);
             return SafeArea(
-            child: StreamBuilder<UserModel?>(
-          stream: user != null ? _userService.streamUser(user!.uid) : Stream.value(null),
-          builder: (context, userSnap) {
-            final userModel = userSnap.data;
-            final isTransporter = user != null && user!.uid != ride.userId;
-            final isDriver = (userModel?.role ?? '').toLowerCase() == 'driver';
-            final verificationStatus = (userModel?.verificationStatus ?? 'pending').toLowerCase();
-            final isVerified = verificationStatus == 'auto_verified' || verificationStatus == 'verified';
-            final canActAsTransporter =
-                TestingFlags.relaxTransporterVerification || !isDriver || isVerified;
-            bool senderViewedRecently = false;
-            if (ride.senderLastViewedAt != null) {
-              try {
-                final viewedAt = DateTime.parse(ride.senderLastViewedAt!);
-                senderViewedRecently = DateTime.now().difference(viewedAt).inMinutes <= 10;
-              } catch (_) {}
-            }
+              child: StreamBuilder<UserModel?>(
+                stream: user != null
+                    ? _userService.streamUser(user!.uid)
+                    : Stream.value(null),
+                builder: (context, userSnap) {
+                  final userModel = userSnap.data;
+                  final isTransporter =
+                      user != null && user!.uid != ride.userId;
+                  final isDriver =
+                      (userModel?.role ?? '').toLowerCase() == 'driver';
+                  final verificationStatus =
+                      (userModel?.verificationStatus ?? 'pending')
+                          .toLowerCase();
+                  final isVerified = verificationStatus == 'auto_verified' ||
+                      verificationStatus == 'verified';
+                  final canActAsTransporter =
+                      TestingFlags.relaxTransporterVerification ||
+                          !isDriver ||
+                          isVerified;
+                  bool senderViewedRecently = false;
+                  if (ride.senderLastViewedAt != null) {
+                    try {
+                      final viewedAt =
+                          DateTime.parse(ride.senderLastViewedAt!);
+                      senderViewedRecently =
+                          DateTime.now().difference(viewedAt).inMinutes <= 10;
+                    } catch (_) {}
+                  }
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-              // Negotiation status (persistent: transporter sees sender viewing / viewed)
-              if (isTransporter && ride.status == 'pending' && ride.priceStatus == 'pending') ...[
-                if (ride.lastCounterOfferBy == 'transporter')
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.amber.shade200),
-                    ),
-                    child: Row(
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.schedule, color: Colors.amber.shade800, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Sender viewing, waiting for reply',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.amber.shade900,
+                        // Negotiation status (persistent: transporter sees sender viewing / viewed)
+                        if (isTransporter &&
+                            ride.status == 'pending' &&
+                            ride.priceStatus == 'pending') ...[
+                          if (ride.lastCounterOfferBy == 'transporter')
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin:
+                                  const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: Colors.amber.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.schedule,
+                                      color: Colors.amber.shade800,
+                                      size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Sender viewing, waiting for reply',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.amber.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (senderViewedRecently)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.blue.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.visibility, color: Colors.blue.shade800, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Sender has viewed',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.blue.shade900,
+                          if (senderViewedRecently)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin:
+                                  const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                    color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.visibility,
+                                      color: Colors.blue.shade800,
+                                      size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Sender has viewed',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.blue.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
+                        ],
               // Package Description
               if (ride.packageDescription != null) ...[
                 Container(

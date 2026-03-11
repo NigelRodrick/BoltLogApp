@@ -99,14 +99,50 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
         backgroundColor: Colors.white,
         body: SafeArea(
           child: Column(
-          children: [
-            // Request details: persist last loaded ride (orders in negotiating)
-            StreamBuilder<RideModel?>(
-              stream: rideService.streamRideById(widget.rideId),
-              builder: (context, snapshot) {
-                if (snapshot.data != null) _cachedRide = snapshot.data;
-                final ride = snapshot.data ?? _cachedRide;
-                if (ride == null) {
+            children: [
+              // Request details: persist last loaded ride (orders in negotiating)
+              StreamBuilder<RideModel?>(
+                stream: rideService.streamRideById(widget.rideId),
+                builder: (context, snapshot) {
+                  if (snapshot.data != null) _cachedRide = snapshot.data;
+                  final ride = snapshot.data ?? _cachedRide;
+                  if (ride == null) {
+                    return Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: const Color(0xFF2563EB),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Loading request details…',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  _lockNavigation = negotiationInProgress(ride);
+
+                  final isOwner = currentUser?.uid == ride.userId;
                   return Container(
                     width: double.infinity,
                     margin: const EdgeInsets.all(16),
@@ -116,200 +152,169 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey.shade200),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: const Color(0xFF2563EB),
+                        Text(
+                          'Your Request',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Loading request details…',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                _lockNavigation = negotiationInProgress(ride);
-
-                final isOwner = currentUser?.uid == ride.userId;
-                return Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Your Request',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        ride.packageDescription ?? 'Transport request',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF1E40AF),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${ride.pickupLocation} → ${ride.dropoffLocation}',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                      if (ride.price != null || ride.counterOffer != null) ...[
                         const SizedBox(height: 8),
-                        if (ride.price != null)
-                          Text(
-                            'Your amount: \$${ride.price!.toStringAsFixed(2)}',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF2563EB),
+                        Text(
+                          ride.packageDescription ?? 'Transport request',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E40AF),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${ride.pickupLocation} → ${ride.dropoffLocation}',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        if (ride.price != null || ride.counterOffer != null) ...[
+                          const SizedBox(height: 8),
+                          if (ride.price != null)
+                            Text(
+                              'Your amount: \$${ride.price!.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF2563EB),
+                              ),
+                            ),
+                          if (ride.counterOffer != null &&
+                              ride.priceStatus == 'pending' &&
+                              ride.lastCounterOfferBy == 'transporter') ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber.shade800,
+                              ),
+                            ),
+                          ],
+                        ],
+                        // Persistent status: sender sent counter-offer, waiting for transporter
+                        if (isOwner &&
+                            ride.status == 'pending' &&
+                            ride.priceStatus == 'pending' &&
+                            ride.lastCounterOfferBy == 'sender') ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.amber.shade200),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.schedule,
+                                    size: 18, color: Colors.amber.shade800),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Waiting for transporter to respond',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.amber.shade900,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        if (ride.counterOffer != null &&
-                            ride.priceStatus == 'pending' &&
-                            ride.lastCounterOfferBy == 'transporter') ...[
-                          const SizedBox(height: 4),
+                        ],
+                        if (!isOwner) ...[
+                          const SizedBox(height: 8),
                           Text(
-                            'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}',
+                            'Only the sender can choose a transporter.',
                             style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.amber.shade800,
+                              fontSize: 12,
+                              color: Colors.red.shade400,
                             ),
                           ),
                         ],
                       ],
-                      // Persistent status: sender sent counter-offer, waiting for transporter
-                      if (isOwner && ride.status == 'pending' && ride.priceStatus == 'pending' && ride.lastCounterOfferBy == 'sender') ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.amber.shade200),
-                          ),
-                          child: Row(
+                    ),
+                  );
+                },
+              ),
+              Expanded(
+                child: StreamBuilder<List<TransporterOfferModel>>(
+                  stream: rideService.streamOffersForRide(widget.rideId),
+                  builder: (context, snapshot) {
+                    if (snapshot.data != null) _cachedOffers = snapshot.data;
+                    final offers = snapshot.data ?? _cachedOffers ?? [];
+                    if (snapshot.connectionState == ConnectionState.waiting &&
+                        offers.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (offers.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.schedule, size: 18, color: Colors.amber.shade800),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Waiting for transporter to respond',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.amber.shade900,
-                                  ),
+                              Icon(
+                                Icons.local_shipping,
+                                size: 64,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Waiting for transporters…',
+                                style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'You will see transporters here as they offer to collect your parcel.',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade500,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      ],
-                      if (!isOwner) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Only the sender can choose a transporter.',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: Colors.red.shade400,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                );
-              },
-            ),
-            Expanded(
-              child: StreamBuilder<List<TransporterOfferModel>>(
-                stream: rideService.streamOffersForRide(widget.rideId),
-                builder: (context, snapshot) {
-                  if (snapshot.data != null) _cachedOffers = snapshot.data;
-                  final offers = snapshot.data ?? _cachedOffers ?? [];
-                  if (snapshot.connectionState == ConnectionState.waiting &&
-                      offers.isEmpty) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (offers.isEmpty) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.local_shipping,
-                              size: 64,
-                              color: Colors.grey.shade400,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Waiting for transporters…',
-                              style: GoogleFonts.inter(
-                                fontSize: 18,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'You will see transporters here as they offer to collect your parcel.',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                color: Colors.grey.shade500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: offers.length,
-                    itemBuilder: (context, index) {
-                      final offer = offers[index];
-                      return _OfferCard(
-                        rideId: widget.rideId,
-                        offer: offer,
                       );
-                    },
-                  );
-                },
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: offers.length,
+                      itemBuilder: (context, index) {
+                        final offer = offers[index];
+                        return _OfferCard(
+                          rideId: widget.rideId,
+                          offer: offer,
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
