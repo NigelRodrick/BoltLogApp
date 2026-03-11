@@ -181,19 +181,17 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.all(12),
-                              margin:
-                                  const EdgeInsets.only(bottom: 12),
+                              margin: const EdgeInsets.only(bottom: 12),
                               decoration: BoxDecoration(
                                 color: Colors.amber.shade50,
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                    color: Colors.amber.shade200),
+                                border:
+                                    Border.all(color: Colors.amber.shade200),
                               ),
                               child: Row(
                                 children: [
                                   Icon(Icons.schedule,
-                                      color: Colors.amber.shade800,
-                                      size: 20),
+                                      color: Colors.amber.shade800, size: 20),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
@@ -212,19 +210,16 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                             Container(
                               width: double.infinity,
                               padding: const EdgeInsets.all(12),
-                              margin:
-                                  const EdgeInsets.only(bottom: 12),
+                              margin: const EdgeInsets.only(bottom: 12),
                               decoration: BoxDecoration(
                                 color: Colors.blue.shade50,
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                    color: Colors.blue.shade200),
+                                border: Border.all(color: Colors.blue.shade200),
                               ),
                               child: Row(
                                 children: [
                                   Icon(Icons.visibility,
-                                      color: Colors.blue.shade800,
-                                      size: 20),
+                                      color: Colors.blue.shade800, size: 20),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
@@ -240,7 +235,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                               ),
                             ),
                         ],
-              // Package Description
+                        // Package Description
               if (ride.packageDescription != null) ...[
                 Container(
                   width: double.infinity,
