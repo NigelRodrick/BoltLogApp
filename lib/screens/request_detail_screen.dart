@@ -874,13 +874,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             ],
           ),
         );
-          },
-        ),
-          );
-        },
-      ),
-    );
-  }
+      },
+    ),
+  );
+}
 
   Widget _buildDetailRow(IconData icon, String label, String value) {
     return Row(
