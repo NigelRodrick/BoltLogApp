@@ -5,11 +5,16 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import '../constants/app_constants.dart';
 
+/// inDrive-style: Uses Google Maps Platform as the core engine.
+/// - Directions API: route calculation, turn-by-turn path on rider/driver maps.
+/// - Distance Matrix API: estimated distance and ETA (for recommended price baseline
+///   and for showing how far each bidding driver is from pickup).
 class RoutingService {
-  // Google Maps API key with Directions API enabled
+  // Google Maps API key (Directions API + Distance Matrix API enabled)
   // For production, consider storing this in environment variables or secure storage
   static const String _apiKey = 'AIzaSyAuZTJgvpOr20n0yeK0s1OMQfiSSRWGSWI';
   static const String _directionsApiUrl = 'https://maps.googleapis.com/maps/api/directions/json';
+  static const String _distanceMatrixApiUrl = 'https://maps.googleapis.com/maps/api/distancematrix/json';
 
   // Get route between two points using Google Directions API with traffic info
   Future<RouteInfo?> getRoute({
@@ -207,6 +212,93 @@ class RoutingService {
            Geolocator.distanceBetween(originLat, originLng, destLat, destLng) / 1000.0;
   }
 
+  /// Distance Matrix API: get estimated travel distance (km) and duration (min) between one origin and one destination.
+  /// Used for recommended price baseline (estimated distance) and driver-to-pickup ETA.
+  Future<DistanceMatrixElement?> getDistanceMatrixElement({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+  }) async {
+    try {
+      final origins = '$originLat,$originLng';
+      final destinations = '$destLat,$destLng';
+      final url = '$_distanceMatrixApiUrl?origins=$origins&destinations=$destinations&key=$_apiKey&mode=driving';
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: AppConstants.connectionTimeoutSeconds),
+      );
+      if (response.statusCode != 200) return null;
+      final data = json.decode(response.body);
+      if (data['status'] != 'OK' || data['rows'] == null || data['rows'].isEmpty) return null;
+      final elements = data['rows'][0]['elements'];
+      if (elements == null || elements.isEmpty) return null;
+      final el = elements[0];
+      if (el['status'] != 'OK') return null;
+      final distanceM = el['distance']?['value'] as int?;
+      final durationS = el['duration']?['value'] as int?;
+      if (distanceM == null || durationS == null) return null;
+      return DistanceMatrixElement(
+        distanceKm: distanceM / 1000.0,
+        durationMinutes: (durationS / 60.0).round(),
+        distanceText: el['distance']?['text'] as String? ?? '${(distanceM / 1000.0).toStringAsFixed(1)} km',
+        durationText: el['duration']?['text'] as String? ?? '${(durationS / 60).round()} min',
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Multiple origins, one destination (e.g. each bidding driver's location → pickup).
+  /// Returns one DistanceMatrixElement per origin, in same order; null entries if that origin failed.
+  Future<List<DistanceMatrixElement?>> getDistanceMatrixToDestination({
+    required List<LatLng> origins,
+    required double destLat,
+    required double destLng,
+  }) async {
+    if (origins.isEmpty) return [];
+    try {
+      final originsParam = origins.map((p) => '${p.latitude},${p.longitude}').join('|');
+      final destinations = '$destLat,$destLng';
+      final url = '$_distanceMatrixApiUrl?origins=${Uri.encodeComponent(originsParam)}&destinations=$destinations&key=$_apiKey&mode=driving';
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: AppConstants.connectionTimeoutSeconds),
+      );
+      if (response.statusCode != 200) return List.filled(origins.length, null);
+      final data = json.decode(response.body);
+      if (data['status'] != 'OK' || data['rows'] == null) return List.filled(origins.length, null);
+      final rows = data['rows'] as List;
+      final result = <DistanceMatrixElement?>[];
+      for (var i = 0; i < rows.length && i < origins.length; i++) {
+        final elements = rows[i]['elements'];
+        if (elements == null || elements.isEmpty) {
+          result.add(null);
+          continue;
+        }
+        final el = elements[0];
+        if (el['status'] != 'OK') {
+          result.add(null);
+          continue;
+        }
+        final distanceM = el['distance']?['value'] as int?;
+        final durationS = el['duration']?['value'] as int?;
+        if (distanceM == null || durationS == null) {
+          result.add(null);
+          continue;
+        }
+        result.add(DistanceMatrixElement(
+          distanceKm: distanceM / 1000.0,
+          durationMinutes: (durationS / 60.0).round(),
+          distanceText: el['distance']?['text'] as String? ?? '${(distanceM / 1000.0).toStringAsFixed(1)} km',
+          durationText: el['duration']?['text'] as String? ?? '${(durationS / 60).round()} min',
+        ));
+      }
+      while (result.length < origins.length) result.add(null);
+      return result;
+    } catch (e) {
+      return List.filled(origins.length, null);
+    }
+  }
+
   // Get route with fallback to straight line
   Future<RouteInfo> getRouteWithFallback({
     required double originLat,
@@ -315,4 +407,19 @@ class RouteInfo {
 
   // Check if route has traffic delays
   bool get hasTrafficDelay => trafficDelayMinutes != null && trafficDelayMinutes! > 0;
+}
+
+/// Result from Distance Matrix API: estimated distance and ETA between one origin and one destination.
+class DistanceMatrixElement {
+  final double distanceKm;
+  final int durationMinutes;
+  final String distanceText;
+  final String durationText;
+
+  DistanceMatrixElement({
+    required this.distanceKm,
+    required this.durationMinutes,
+    required this.distanceText,
+    required this.durationText,
+  });
 }

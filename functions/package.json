@@ -6,16 +6,21 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "fix-iam": "node grant-gcf-bucket-access.js",
+    "fix-iam-and-deploy": "node grant-gcf-bucket-access.js && npm run deploy"
   },
   "engines": {
     "node": "20"
   },
   "main": "index.js",
   "dependencies": {
-    "firebase-admin": "^11.11.0",
-    "firebase-functions": "^4.5.0",
+    "firebase-admin": "^11.14.0",
+    "firebase-functions": "^4.9.0",
     "@google-cloud/vision": "^4.3.2"
+  },
+  "devDependencies": {
+    "@google-cloud/storage": "^7.14.0"
   },
   "private": true
 }

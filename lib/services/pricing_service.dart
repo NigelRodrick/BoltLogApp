@@ -1,7 +1,16 @@
 import 'dart:math' as math;
 import 'package:geolocator/geolocator.dart';
 
+/// inDrive-style: we don't fix the price with APIs; we use them for a baseline.
+/// Distance Matrix / Directions API provide "estimated distance" → we suggest a Recommended Price.
+/// The actual final amount is determined by the users' agreement based on that data.
 class PricingService {
+  /// Minimum allowed proposed price (prevents $0.01 offers).
+  static const double minimumFloorPrice = 1.0;
+
+  /// Platform fee as decimal (e.g. 0.02 = 2%).
+  static const double platformFeePercentage = 0.02;
+
   // Calculate distance between two coordinates in kilometers
   static double calculateDistance(
     double lat1,
@@ -159,6 +168,64 @@ class PricingService {
         // Default pricing for unknown types
         return distanceKm * 1.5;
     }
+  }
+
+  /// Recommended price from an estimated route distance (e.g. from Directions API or Distance Matrix).
+  /// inDrive-style: the backend uses estimated distance as baseline; final amount is user-negotiated.
+  static double? calculatePriceFromDistance({
+    required String? transportType,
+    required double distanceKm,
+  }) {
+    if (transportType == null) return null;
+    final isLocal = isLocalRoute(distanceKm);
+    switch (transportType) {
+      case 'bike_express':
+        return calculateMotorcyclePrice(distanceKm);
+      case 'runner':
+        return calculateVanPrice(distanceKm, isLocal);
+      case 'pickup':
+        return calculatePickupPrice(distanceKm);
+      case 'truck_5t':
+        return calculateTruck5tPrice(distanceKm, isLocal);
+      case 'truck_10t':
+        return calculateTruck10tPrice(distanceKm, isLocal);
+      case 'truck_20t':
+        return calculateTruck20tPrice(distanceKm, isLocal);
+      default:
+        return distanceKm * 1.5;
+    }
+  }
+
+  /// Recommended price for this route (coordinates). Prefer using route/Matrix distance + calculatePriceFromDistance when available.
+  static double? getRecommendedPrice({
+    required String? transportType,
+    required double? pickupLat,
+    required double? pickupLng,
+    required double? dropoffLat,
+    required double? dropoffLng,
+  }) {
+    return calculatePrice(
+      transportType: transportType,
+      pickupLat: pickupLat,
+      pickupLng: pickupLng,
+      dropoffLat: dropoffLat,
+      dropoffLng: dropoffLng,
+    );
+  }
+
+  /// Validates rider's proposed_price against minimum_floor_price and optional recommended_price.
+  /// Returns [true, null] if valid; [false, errorMessage] if invalid.
+  static (bool isValid, String? errorMessage) validateProposedPrice(
+    double proposedPrice, {
+    double? recommendedPrice,
+  }) {
+    if (proposedPrice < minimumFloorPrice) {
+      return (false, 'Minimum offer is \$${minimumFloorPrice.toStringAsFixed(2)}.');
+    }
+    if (proposedPrice <= 0) {
+      return (false, 'Please enter a valid price.');
+    }
+    return (true, null);
   }
 
   // Get price range for display (for trucks with ranges)

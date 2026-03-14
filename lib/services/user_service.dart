@@ -176,6 +176,37 @@ class UserService {
     });
   }
 
+  /// One-time fetch of nearby drivers (for push on new request). inDrive-style: broadcast to drivers near pickup.
+  Future<List<UserModel>> getNearbyDriversOnce({
+    required double latitude,
+    required double longitude,
+    double radiusKm = 25.0,
+  }) async {
+    final snapshot = await _firestore
+        .collection('users')
+        .where('role', isEqualTo: 'Driver')
+        .where('isAvailable', isEqualTo: true)
+        .get();
+    final drivers = <UserModel>[];
+    for (var doc in snapshot.docs) {
+      final data = doc.data();
+      final driverLat = data['currentLat']?.toDouble();
+      final driverLng = data['currentLng']?.toDouble();
+      if (driverLat != null && driverLng != null) {
+        final distance = _calculateDistance(latitude, longitude, driverLat, driverLng);
+        if (distance <= radiusKm) {
+          drivers.add(UserModel.fromMap(data));
+        }
+      }
+    }
+    drivers.sort((a, b) {
+      final distA = _calculateDistance(latitude, longitude, a.currentLat!, a.currentLng!);
+      final distB = _calculateDistance(latitude, longitude, b.currentLat!, b.currentLng!);
+      return distA.compareTo(distB);
+    });
+    return drivers;
+  }
+
   // Calculate distance between two coordinates using Haversine formula
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double earthRadius = 6371; // Earth radius in kilometers

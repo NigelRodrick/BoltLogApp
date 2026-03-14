@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/ride_model.dart';
 import '../services/ride_service.dart';
+import '../utils/chat_utils.dart';
 import '../widgets/active_deliveries_map.dart';
 import 'ride_route_screen.dart';
 import 'chat_screen.dart';
@@ -468,12 +469,21 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
                 height: 44,
                 child: OutlinedButton.icon(
                   onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(ride: delivery),
-                      ),
-                    );
+                    if (!isChatAllowedForRide(delivery)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Chat is no longer available for this delivery.'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChatScreen(ride: delivery),
+                        ),
+                      );
+                    }
                   },
                   icon: const Icon(Icons.chat, size: 18),
                   label: const Text('Chat with Sender'),

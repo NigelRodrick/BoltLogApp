@@ -259,3 +259,76 @@ exports.onDriverDocumentsUpdated = functions.firestore
 
     return null;
   });
+
+/**
+ * When a notification document is created, send a real FCM push to the user's device.
+ * Payload includes rideId and type so the app can open the ride on tap (deep link).
+ */
+exports.onNotificationCreated = functions.firestore
+  .document("notifications/{notificationId}")
+  .onCreate(async (snap, context) => {
+    const data = snap.data();
+    if (!data) return null;
+
+    const { userId, title, message, type, rideId } = data;
+    if (!userId || !title || !message) {
+      console.warn("onNotificationCreated: missing userId, title, or message");
+      return null;
+    }
+
+    let fcmToken;
+    try {
+      const userSnap = await admin.firestore().collection("users").doc(userId).get();
+      if (!userSnap.exists) {
+        console.warn("onNotificationCreated: user not found", userId);
+        return null;
+      }
+      fcmToken = userSnap.data().fcmToken || null;
+    } catch (e) {
+      console.error("onNotificationCreated: error reading user", e);
+      return null;
+    }
+
+    if (!fcmToken) {
+      console.warn("onNotificationCreated: no fcmToken for user", userId);
+      return null;
+    }
+
+    const payload = {
+      notification: {
+        title: title || "Boltlog",
+        body: message,
+      },
+      data: {
+        type: String(type != null ? type : ""),
+        rideId: String(rideId != null ? rideId : ""),
+      },
+      token: fcmToken,
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "default",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+        fcmOptions: {
+          imageUrl: undefined,
+        },
+      },
+    };
+
+    try {
+      await admin.messaging().send(payload);
+      console.log("FCM sent to", userId, "for notification", context.params.notificationId);
+    } catch (e) {
+      console.error("onNotificationCreated: FCM send failed", e);
+    }
+    return null;
+  });

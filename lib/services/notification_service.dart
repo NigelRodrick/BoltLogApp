@@ -1,10 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
 class NotificationService {
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// Pending notification from tap (cold start or background). Check after app loads and navigate.
+  static String? pendingRideId;
+  static String? pendingNotificationType;
+
+  static String? getPendingRideId() {
+    final id = pendingRideId;
+    pendingRideId = null;
+    return id;
+  }
 
   // Initialize notifications
   Future<void> initialize() async {
@@ -18,18 +29,18 @@ class NotificationService {
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       debugPrint('User granted notification permission');
-      
-      // Get FCM token
+
       String? token = await _messaging.getToken();
       if (token != null) {
         debugPrint('FCM Token: $token');
-        // Save token to Firestore when user logs in
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) await saveTokenToUser(uid, token);
       }
-      
-      // Handle token refresh
-      _messaging.onTokenRefresh.listen((newToken) {
+
+      _messaging.onTokenRefresh.listen((newToken) async {
         debugPrint('FCM Token refreshed: $newToken');
-        // Update token in Firestore
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) await saveTokenToUser(uid, newToken);
       });
     } else {
       debugPrint('User declined or has not accepted notification permission');
@@ -47,23 +58,27 @@ class NotificationService {
       }
     });
 
-    // Handle background messages (when app is terminated)
+    // Handle notification tap (app in background)
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint('A new onMessageOpenedApp event was published!');
-      debugPrint('Message data: ${message.data}');
-      // Save notification to Firestore
+      debugPrint('onMessageOpenedApp: ${message.data}');
       _saveNotificationFromMessage(message);
-      // Navigation will be handled by the app based on notification data
+      _setPendingFromData(message.data);
     });
 
-    // Check if app was opened from a notification
+    // App opened from notification (cold start)
     RemoteMessage? initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) {
-      debugPrint('App opened from notification');
-      debugPrint('Message data: ${initialMessage.data}');
-      // Save notification to Firestore
+      debugPrint('App opened from notification: ${initialMessage.data}');
       _saveNotificationFromMessage(initialMessage);
-      // Navigation will be handled by the app based on notification data
+      _setPendingFromData(initialMessage.data);
+    }
+  }
+
+  void _setPendingFromData(Map<String, dynamic> data) {
+    final rideId = data['rideId'] as String?;
+    if (rideId != null && rideId.isNotEmpty) {
+      pendingRideId = rideId;
+      pendingNotificationType = data['type'] as String?;
     }
   }
 

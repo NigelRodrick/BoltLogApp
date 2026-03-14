@@ -7,16 +7,52 @@ import 'package:flutter/foundation.dart';
 import '../models/ride_model.dart';
 import '../models/user_model.dart';
 import '../models/transporter_offer_model.dart';
+import 'pricing_service.dart';
 import 'notification_service.dart';
+import 'user_service.dart';
 
+/// inDrive-style negotiation: a state machine that manages a digital "handshake."
+/// - open: rider proposed_price broadcast; drivers can counter (+10% / +20% / +30% or custom).
+/// - pending + priceStatus pending: NEGOTIATING (counter-offers exchanged).
+/// - pending + priceStatus accepted: rider locked on one driver; finalPrice set; driver must "Accept" to proceed.
+/// - in_progress: both agreed; final_fare locked; commission = finalPrice * platformFeePercentage.
+/// Concurrency: only the first driver the rider "Accepts" is linked (transaction + acceptedTransporterId).
 class RideService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Create a new ride request
+  // Create a new ride request. inDrive-style: broadcast to nearby drivers via push.
   Future<String> createRide(RideModel ride) async {
     try {
       final docRef = await _firestore.collection('rides').add(ride.toMap());
-      return docRef.id;
+      final rideId = docRef.id;
+
+      // Option B: Notify nearby drivers (push when request is created)
+      if (ride.pickupLat != null && ride.pickupLng != null) {
+        try {
+          final userService = UserService();
+          final nearbyDrivers = await userService.getNearbyDriversOnce(
+            latitude: ride.pickupLat!,
+            longitude: ride.pickupLng!,
+            radiusKm: 25.0,
+          );
+          final notificationService = NotificationService();
+          final priceStr = ride.price != null ? '\$${ride.price!.toStringAsFixed(2)} – ' : '';
+          final message = '$priceStr${ride.pickupLocation} to ${ride.dropoffLocation}';
+          for (final driver in nearbyDrivers) {
+            await notificationService.createNotification(
+              userId: driver.uid,
+              type: 'new_request_nearby',
+              title: 'New request near you',
+              message: message,
+              rideId: rideId,
+              data: {'rideId': rideId},
+            );
+          }
+        } catch (e) {
+          debugPrint('Error notifying nearby drivers: $e');
+        }
+      }
+      return rideId;
     } catch (e) {
       throw Exception('Error creating ride: $e');
     }
@@ -106,6 +142,15 @@ class RideService {
     }
   }
 
+  /// One-time fetch of a ride by ID (e.g. for notification deep link).
+  Future<RideModel?> getRideById(String rideId) async {
+    final snapshot = await _firestore.collection('rides').doc(rideId).get();
+    if (snapshot.exists && snapshot.data() != null) {
+      return RideModel.fromMap(snapshot.data()!, snapshot.id);
+    }
+    return null;
+  }
+
   // Stream a single ride by ID for real-time updates
   Stream<RideModel?> streamRideById(String rideId) {
     return _firestore
@@ -120,10 +165,71 @@ class RideService {
     });
   }
 
-  // Cancel ride
-  // Note: If transporter already accepted, the 2% fee is NOT refunded (as per business logic)
+  // Cancel ride (convenience wrapper)
   Future<void> cancelRide(String rideId) async {
-    await updateRideStatus(rideId, 'cancelled');
+    await cancelRideWithReason(rideId, cancelledBy: 'sender');
+  }
+
+  /// inDrive-style cancellation: free when open/pending (before driver committed);
+  /// after driver accepted, cancel is "late" – notify driver and store reason.
+  Future<void> cancelRideWithReason(
+    String rideId, {
+    required String cancelledBy,
+    String? cancellationReason,
+  }) async {
+    final rideRef = _firestore.collection('rides').doc(rideId);
+    final rideSnap = await rideRef.get();
+    if (!rideSnap.exists) throw Exception('Ride not found');
+    final data = rideSnap.data()!;
+    final status = data['status'] as String? ?? 'open';
+    final driverId = data['driverId'] as String?;
+
+    final update = <String, dynamic>{
+      'status': 'cancelled',
+      'cancelledAt': DateTime.now().toIso8601String(),
+      'cancelledBy': cancelledBy,
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+    if (cancellationReason != null && cancellationReason.isNotEmpty) {
+      update['cancellationReason'] = cancellationReason;
+    }
+    await rideRef.update(update);
+
+    // Notify the other party
+    try {
+      final notificationService = NotificationService();
+      if (cancelledBy == 'transporter') {
+        final senderId = rideData['userId'] as String?;
+        if (senderId != null) {
+          await notificationService.createNotification(
+            userId: senderId,
+            type: 'ride_cancelled',
+            title: 'Driver cancelled',
+            message: 'The transporter has cancelled this delivery. You can create a new request.',
+            rideId: rideId,
+            data: {'rideId': rideId, 'cancelledBy': cancelledBy},
+          );
+        }
+      } else if (driverId != null && (status == 'in_progress' || status == 'parcel_collected')) {
+        await notificationService.createNotification(
+          userId: driverId,
+          type: 'ride_cancelled',
+          title: 'Request cancelled',
+          message: 'The sender has cancelled this delivery.',
+          rideId: rideId,
+          data: {'rideId': rideId, 'cancelledBy': cancelledBy},
+        );
+      }
+    } catch (e) {
+      debugPrint('Error notifying of cancellation: $e');
+    }
+  }
+
+  /// True if cancellation is "free" (inDrive: before driver is committed). After driver accepted, late cancel.
+  bool isFreeCancellation(RideModel ride) {
+    if (ride.status == 'cancelled') return false;
+    return ride.driverId == null &&
+        (ride.status == 'open' || (ride.status == 'pending' && ride.acceptedTransporterId == null));
   }
 
   // Get available rides for transporters (open, no driver assigned)
@@ -436,9 +542,10 @@ class RideService {
           throw Exception('Ride has already been accepted by another transporter');
         }
         
-        // Get the final price (negotiated price if sender approved, or original price)
+        // Lock-in: use finalPrice (agreed amount) when set, else rider's price
         final price = (rideData['price'] as num?)?.toDouble() ?? 0.0;
-        final fee = price * 0.02;
+        final negotiatedFare = (rideData['finalPrice'] as num?)?.toDouble() ?? price;
+        final fee = negotiatedFare * PricingService.platformFeePercentage;
 
         const allowedVerifiedStatuses = ['auto_verified', 'verified'];
         const driverRole = 'driver';
@@ -497,12 +604,16 @@ class RideService {
           }
         }
 
-        // Accept ride - change status to 'in_progress'
-        transaction.update(rideRef, {
+        // Accept ride: move from NEGOTIATING/ACCEPTED to in_progress; lock final_fare if not set
+        final updatePayload = <String, dynamic>{
           'driverId': transporterId,
           'status': 'in_progress',
           'updatedAt': DateTime.now().toIso8601String(),
-        });
+        };
+        if (rideData['finalPrice'] == null) {
+          updatePayload['finalPrice'] = price; // Direct accept: lock rider's price as final
+        }
+        transaction.update(rideRef, updatePayload);
       });
       
       // After transaction, if there was negotiation and balance insufficient, notify
@@ -513,8 +624,9 @@ class RideService {
                                 rideData?['priceStatus'] == 'pending';
         
         if (hasCounterOffer) {
-          final price = (rideData?['price'] as num?)?.toDouble() ?? 0.0;
-          final fee = price * 0.02;
+          final negotiatedFare = (rideData?['finalPrice'] as num?)?.toDouble() ??
+              (rideData?['price'] as num?)?.toDouble() ?? 0.0;
+          final fee = negotiatedFare * PricingService.platformFeePercentage;
           
           final userDoc = await _firestore.collection('users').doc(transporterId).get();
           final userData = userDoc.data();
@@ -582,7 +694,7 @@ class RideService {
   // Deduct fee from transporter wallet (called after negotiation is accepted)
   Future<void> deductAcceptanceFee(String transporterId, double ridePrice) async {
     try {
-      final fee = ridePrice * 0.02;
+      final fee = ridePrice * PricingService.platformFeePercentage;
       
       await _firestore.runTransaction((transaction) async {
         final userRef = _firestore.collection('users').doc(transporterId);
@@ -929,7 +1041,7 @@ class RideService {
           final rideSnap = await transaction.get(rideRef);
           final rideData = rideSnap.data() as Map<String, dynamic>;
           final agreed = counterOffer ?? (rideData['price'] as num?)?.toDouble() ?? 0.0;
-          final fee = agreed * 0.02;
+          final fee = agreed * PricingService.platformFeePercentage;
           
           // Check balance
           final userRef = _firestore.collection('users').doc(transporterId);
@@ -1076,8 +1188,9 @@ class RideService {
           if (transporterId != null) {
             final rideDoc = await _firestore.collection('rides').doc(rideId).get();
             final rideData = rideDoc.data();
-            final price = (rideData?['price'] as num?)?.toDouble() ?? 0.0;
-            final fee = price * 0.02;
+            final agreed = (rideData?['finalPrice'] as num?)?.toDouble() ??
+                (rideData?['price'] as num?)?.toDouble() ?? 0.0;
+            final fee = agreed * PricingService.platformFeePercentage;
             
             final notificationService = NotificationService();
             await notificationService.createNotification(

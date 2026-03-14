@@ -10,6 +10,7 @@ import '../services/ride_service.dart';
 import '../services/user_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
+import '../utils/ride_distance_utils.dart';
 import 'active_ride_map_screen.dart';
 import 'request_detail_screen.dart';
 
@@ -139,7 +140,7 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                   );
                 }
 
-                // Filter requests by driver's vehicle/transport type
+                // Filter by driver's vehicle/transport type
                 List<RideModel> filteredRides = rides;
                 final driverTruckType = userModel?.truckType;
                 if (driverTruckType != null && driverTruckType.isNotEmpty) {
@@ -147,6 +148,13 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                       .where((ride) => ride.transportType == null || ride.transportType == driverTruckType)
                       .toList();
                 }
+                // inDrive-style: only nearby requests, sorted by distance to pickup
+                filteredRides = filterAndSortRidesByDistance(
+                  filteredRides,
+                  driverLat: userModel?.currentLat,
+                  driverLng: userModel?.currentLng,
+                  maxRadiusKm: defaultMaxRadiusKm,
+                );
 
                 _rides = filteredRides;
 
@@ -185,9 +193,19 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       _updateMapMarkers(filteredRides);
                     });
-                    content = _buildMapView(filteredRides, user?.uid ?? '');
+                    content = _buildMapView(
+                      filteredRides,
+                      user?.uid ?? '',
+                      driverLat: userModel?.currentLat,
+                      driverLng: userModel?.currentLng,
+                    );
                   } else {
-                    content = _buildListView(filteredRides, user?.uid ?? '');
+                    content = _buildListView(
+                      filteredRides,
+                      user?.uid ?? '',
+                      driverLat: userModel?.currentLat,
+                      driverLng: userModel?.currentLng,
+                    );
                   }
                 }
 
@@ -254,7 +272,12 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
     );
   }
 
-  Widget _buildMapView(List<RideModel> rides, String transporterId) {
+  Widget _buildMapView(
+    List<RideModel> rides,
+    String transporterId, {
+    double? driverLat,
+    double? driverLng,
+  }) {
     // Calculate initial camera position based on rides
     LatLng? initialPosition;
     if (rides.isNotEmpty) {
@@ -459,23 +482,38 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
     );
   }
 
-  Widget _buildListView(List<RideModel> rides, String transporterId) {
+  Widget _buildListView(
+    List<RideModel> rides,
+    String transporterId, {
+    double? driverLat,
+    double? driverLng,
+  }) {
     return RefreshIndicator(
-      onRefresh: () async {
-        // Refresh is handled by stream
-      },
+      onRefresh: () async {},
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: rides.length,
         itemBuilder: (context, index) {
           final ride = rides[index];
-          return _buildDeliveryCard(context, ride, transporterId);
+          return _buildDeliveryCard(
+            context,
+            ride,
+            transporterId,
+            driverLat: driverLat,
+            driverLng: driverLng,
+          );
         },
       ),
     );
   }
 
-  Widget _buildDeliveryCard(BuildContext context, RideModel ride, String transporterId) {
+  Widget _buildDeliveryCard(
+    BuildContext context,
+    RideModel ride,
+    String transporterId, {
+    double? driverLat,
+    double? driverLng,
+  }) {
 
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('users').doc(transporterId).snapshots(),
@@ -567,6 +605,18 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                                 color: Colors.grey.shade600,
                               ),
                             ),
+                          if (driverLat != null &&
+                              driverLng != null &&
+                              distanceToPickupKm(ride, driverLat, driverLng) != null) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '${distanceToPickupKm(ride, driverLat, driverLng)!.toStringAsFixed(1)} km away',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],

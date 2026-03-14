@@ -6,6 +6,8 @@ import 'package:geocoding/geocoding.dart';
 import '../models/ride_model.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
+import '../services/pricing_service.dart';
+import '../utils/chat_utils.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
 
@@ -49,6 +51,80 @@ class ActiveRideTrackingScreen extends StatelessWidget {
         return Colors.red;
       default:
         return Colors.grey;
+    }
+  }
+
+  /// inDrive-style cancellation: free before driver committed; late cancel notifies driver and stores reason.
+  static Future<void> _showCancelDialog(BuildContext context, RideModel ride) async {
+    if (ride.id == null) return;
+    final rideService = RideService();
+    final isFree = rideService.isFreeCancellation(ride);
+    final reasonController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(
+            isFree ? 'Cancel request?' : 'Cancel anyway?',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isFree
+                    ? 'You can cancel this request at no charge. No driver has been assigned yet.'
+                    : 'The driver is already on the way. Cancelling may affect your rating. Are you sure?',
+                style: GoogleFonts.inter(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: reasonController,
+                decoration: InputDecoration(
+                  labelText: 'Reason (optional)',
+                  hintText: 'e.g. Change of plans',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                maxLines: 2,
+                style: GoogleFonts.inter(fontSize: 14),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Keep request', style: GoogleFonts.inter()),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text('Cancel request', style: GoogleFonts.inter(color: Colors.red.shade700)),
+            ),
+          ],
+        );
+      },
+    );
+    final reason = reasonController.text.trim().isEmpty ? null : reasonController.text.trim();
+    reasonController.dispose();
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await rideService.cancelRideWithReason(
+        ride.id!,
+        cancelledBy: 'sender',
+        cancellationReason: reason,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request cancelled'), backgroundColor: Colors.orange),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not cancel: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -387,8 +463,8 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // Price
-                if (currentRide.price != null) ...[
+                // Price (or negotiated amount)
+                if (currentRide.price != null || currentRide.finalPrice != null) ...[
                   Card(
                     elevation: 1,
                     shape: RoundedRectangleBorder(
@@ -400,7 +476,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Price',
+                            'Agreed amount',
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -408,7 +484,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '\$${currentRide.price!.toStringAsFixed(2)}',
+                            '\$${(currentRide.finalPrice ?? currentRide.price)!.toStringAsFixed(2)}',
                             style: GoogleFonts.inter(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -419,6 +495,43 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Trip summary when completed (final fare + platform fee)
+                  if (currentRide.status == 'completed') ...[
+                    Card(
+                      elevation: 1,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Trip summary',
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFF1E40AF),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _buildSummaryRow(
+                              'Final fare',
+                              (currentRide.finalPrice ?? currentRide.price) ?? 0,
+                            ),
+                            const SizedBox(height: 6),
+                            _buildSummaryRow(
+                              'Platform fee (${(PricingService.platformFeePercentage * 100).toInt()}%)',
+                              ((currentRide.finalPrice ?? currentRide.price) ?? 0) *
+                                  PricingService.platformFeePercentage,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                 ],
                 // Progress Timeline
@@ -432,6 +545,27 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 _buildProgressTimeline(currentRide.status),
+                // Cancel request (inDrive-style: free vs late cancel)
+                if (currentRide.status != 'cancelled' &&
+                    currentRide.status != 'completed' &&
+                    currentRide.userId == user?.uid) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showCancelDialog(context, currentRide),
+                      icon: const Icon(Icons.cancel_outlined, size: 20),
+                      label: const Text('Cancel request'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red.shade700,
+                        side: BorderSide(color: Colors.red.shade400),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 // Action buttons
                 if (currentRide.status != 'cancelled' && currentRide.driverId != null) ...[
                   const SizedBox(height: 24),
@@ -441,12 +575,21 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                       height: 48,
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatScreen(ride: currentRide),
-                            ),
-                          );
+                          if (!isChatAllowedForRide(currentRide)) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Chat is no longer available for this delivery.'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ChatScreen(ride: currentRide),
+                              ),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.chat, size: 20),
                         label: const Text('Chat with Driver'),
@@ -465,12 +608,21 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => ChatScreen(ride: currentRide),
-                                ),
-                              );
+                              if (!isChatAllowedForRide(currentRide)) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Chat is no longer available for this delivery.'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ChatScreen(ride: currentRide),
+                                  ),
+                                );
+                              }
                             },
                             icon: const Icon(Icons.chat, size: 20),
                             label: const Text('Chat'),
@@ -594,6 +746,29 @@ class ActiveRideTrackingScreen extends StatelessWidget {
           }).toList(),
         ),
       ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, double amount) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        Text(
+          '\$${amount.toStringAsFixed(2)}',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF1E40AF),
+          ),
+        ),
+      ],
     );
   }
 }

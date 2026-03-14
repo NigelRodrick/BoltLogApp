@@ -1,0 +1,95 @@
+# Deploy Firebase Cloud Functions on push to main (when functions/ or config change) or on manual run.
+# Requires: FIREBASE_TOKEN. Optional: GCP_SA_KEY to auto-apply IAM before deploy (see .github/DEPLOY_FUNCTIONS_SETUP.md).
+name: Deploy Cloud Functions
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'functions/**'
+      - 'firebase.json'
+      - '.firebaserc'
+
+env:
+  GCP_PROJECT: boltlog
+  GCP_PROJECT_NUMBER: "28158895372"
+
+jobs:
+  deploy-functions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for GCP_SA_KEY
+        id: gcp-sa
+        run: |
+          if [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "defined=true" >> $GITHUB_OUTPUT
+          else
+            echo "defined=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Apply GCP IAM (fix build permissions)
+        if: steps.gcp-sa.outputs.defined == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        if: steps.gcp-sa.outputs.defined == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Grant Storage + Artifact + Logs + Run to Cloud Build
+        if: steps.gcp-sa.outputs.defined == 'true'
+        run: |
+          COMPUTE_SA="${GCP_PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          BUILD_SA="${GCP_PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+          for sa in "$COMPUTE_SA" "$BUILD_SA"; do
+            gcloud projects add-iam-policy-binding $GCP_PROJECT --member="serviceAccount:$sa" --role="roles/storage.objectViewer" --quiet || true
+          done
+          gcloud projects add-iam-policy-binding $GCP_PROJECT --member="serviceAccount:$BUILD_SA" --role="roles/artifactregistry.writer" --quiet || true
+          gcloud projects add-iam-policy-binding $GCP_PROJECT --member="serviceAccount:$BUILD_SA" --role="roles/logging.logWriter" --quiet || true
+          gcloud projects add-iam-policy-binding $GCP_PROJECT --member="serviceAccount:$BUILD_SA" --role="roles/run.builder" --quiet || true
+          echo "IAM applied."
+
+      - name: Reset artifacts bucket (fix build cache)
+        if: steps.gcp-sa.outputs.defined == 'true'
+        run: |
+          BUCKET="us.artifacts.${GCP_PROJECT}.appspot.com"
+          gcloud storage rm --recursive "gs://${BUCKET}" --quiet 2>/dev/null || true
+          gcloud storage buckets delete "gs://${BUCKET}" --quiet 2>/dev/null || true
+          echo "Artifacts bucket reset (will be recreated on deploy)."
+
+      - name: Wait for IAM propagation
+        if: steps.gcp-sa.outputs.defined == 'true'
+        run: echo "Waiting 15s for IAM propagation..." && sleep 15
+
+      - name: Check for FIREBASE_TOKEN
+        id: has-token
+        run: |
+          if [ -n "${{ secrets.FIREBASE_TOKEN }}" ]; then
+            echo "defined=true" >> $GITHUB_OUTPUT
+          else
+            echo "defined=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy Cloud Functions
+        if: steps.has-token.outputs.defined == 'true'
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only functions
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: Skip (no FIREBASE_TOKEN)
+        if: steps.has-token.outputs.defined == 'false'
+        run: |
+          echo "FIREBASE_TOKEN secret not set. Skipping deploy."
+          echo "Add FIREBASE_TOKEN in repo Settings → Secrets → Actions (get it with: npx firebase login:ci)"
+          echo "Optional: add GCP_SA_KEY (service account JSON with Project IAM Admin) to auto-apply build permissions before each deploy. See .github/DEPLOY_FUNCTIONS_SETUP.md"

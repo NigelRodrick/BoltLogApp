@@ -7,6 +7,7 @@ import '../models/ride_model.dart';
 import '../models/transporter_offer_model.dart';
 import '../models/user_model.dart';
 import '../services/ride_service.dart';
+import '../services/routing_service.dart';
 import '../utils/negotiation_utils.dart';
 
 class TransporterSelectionScreen extends StatefulWidget {
@@ -307,6 +308,7 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                         return _OfferCard(
                           rideId: widget.rideId,
                           offer: offer,
+                          ride: ride,
                         );
                       },
                     );
@@ -324,10 +326,12 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
 class _OfferCard extends StatefulWidget {
   final String rideId;
   final TransporterOfferModel offer;
+  final RideModel ride;
 
   const _OfferCard({
     required this.rideId,
     required this.offer,
+    required this.ride,
   });
 
   @override
@@ -399,17 +403,61 @@ class _OfferCardState extends State<_OfferCard> {
                               ),
                             ),
                           ],
+                          if (transporter?.rating != null) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.star,
+                                  size: 14,
+                                  color: Colors.amber.shade700,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  transporter!.rating!.toStringAsFixed(1),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.amber.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (transporter?.currentLat != null &&
+                              transporter?.currentLng != null &&
+                              widget.ride.pickupLat != null &&
+                              widget.ride.pickupLng != null)
+                            _DriverEtaChip(
+                              originLat: transporter!.currentLat!,
+                              originLng: transporter.currentLng!,
+                              destLat: widget.ride.pickupLat!,
+                              destLng: widget.ride.pickupLng!,
+                            ),
                         ],
                       ),
                     ),
                     if (widget.offer.priceOffer != null)
-                      Text(
-                        '\$${widget.offer.priceOffer!.toStringAsFixed(2)}',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF2563EB),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Their bid',
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          Text(
+                            '\$${widget.offer.priceOffer!.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF2563EB),
+                            ),
+                          ),
+                        ],
                       ),
                   ],
                 ),
@@ -877,6 +925,55 @@ class _OfferCardState extends State<_OfferCard> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shows driver ETA/distance to pickup using Distance Matrix API (inDrive-style).
+class _DriverEtaChip extends StatelessWidget {
+  final double originLat;
+  final double originLng;
+  final double destLat;
+  final double destLng;
+
+  const _DriverEtaChip({
+    required this.originLat,
+    required this.originLng,
+    required this.destLat,
+    required this.destLng,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DistanceMatrixElement?>(
+      future: RoutingService().getDistanceMatrixElement(
+        originLat: originLat,
+        originLng: originLng,
+        destLat: destLat,
+        destLng: destLng,
+      ),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data == null) {
+          return const SizedBox.shrink();
+        }
+        final el = snapshot.data!;
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(
+            children: [
+              Icon(Icons.schedule, size: 12, color: Colors.grey.shade600),
+              const SizedBox(width: 4),
+              Text(
+                '~${el.durationMinutes} min to pickup',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

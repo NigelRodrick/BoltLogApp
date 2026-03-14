@@ -16,6 +16,7 @@ import 'driver_account_edit_screen.dart';
 import 'main_navigation.dart';
 import 'wallet_topup_screen.dart';
 import '../widgets/storage_image.dart';
+import '../utils/ride_distance_utils.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
   const DriverDashboardScreen({super.key});
@@ -130,7 +131,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         final deliveries = deliveriesSnapshot.data ?? [];
                         final completedRides = completedDeliveriesSnapshot.data ?? [];
 
-                        // Filter available rides by driver's vehicle/transport type
+                        // Filter by vehicle type then inDrive-style: nearby only, sorted by distance
                         final allAvailableRides = availableRidesSnapshot.data ?? [];
                         List<RideModel> availableRides = allAvailableRides;
                         final driverTruckType = userModel?.truckType;
@@ -139,6 +140,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               .where((ride) => ride.transportType == null || ride.transportType == driverTruckType)
                               .toList();
                         }
+                        availableRides = filterAndSortRidesByDistance(
+                          availableRides,
+                          driverLat: userModel?.currentLat,
+                          driverLng: userModel?.currentLng,
+                          maxRadiusKm: defaultMaxRadiusKm,
+                        );
                         
                         // #region agent log
                         try {
@@ -283,7 +290,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             if (availableRides.isEmpty)
                               _buildEmptyState('No current requests', 'New transport requests will appear here')
                             else
-                              ...availableRides.take(3).map((ride) => _buildDeliveryPreviewCard(context, ride, user.uid)),
+                              ...availableRides.take(3).map((ride) => _buildDeliveryPreviewCard(
+                                  context,
+                                  ride,
+                                  user.uid,
+                                  driverLat: userModel?.currentLat,
+                                  driverLng: userModel?.currentLng,
+                                )),
                             
                             if (availableRides.length > 3)
                               Padding(
@@ -859,7 +872,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
-  Widget _buildDeliveryPreviewCard(BuildContext context, RideModel ride, String transporterId) {
+  Widget _buildDeliveryPreviewCard(
+    BuildContext context,
+    RideModel ride,
+    String transporterId, {
+    double? driverLat,
+    double? driverLng,
+  }) {
+    final distanceKm = (driverLat != null && driverLng != null)
+        ? distanceToPickupKm(ride, driverLat, driverLng)
+        : null;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
@@ -917,6 +939,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               ),
                             ),
                           ),
+                        if (distanceKm != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '${distanceKm.toStringAsFixed(1)} km away',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

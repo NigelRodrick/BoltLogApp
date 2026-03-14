@@ -1,7 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 import 'ride_history_screen.dart';
 import 'profile_screen.dart';
+import '../services/notification_service.dart';
+import '../services/ride_service.dart';
+import 'request_detail_screen.dart';
 
 class MainNavigation extends StatefulWidget {
   final bool showWelcomeMessage;
@@ -24,8 +28,8 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handlePendingNotification());
     if (widget.showWelcomeMessage) {
-      // Show welcome message after first frame
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -38,6 +42,30 @@ class _MainNavigationState extends State<MainNavigation> {
           );
         }
       });
+    }
+  }
+
+  Future<void> _handlePendingNotification() async {
+    final rideId = NotificationService.getPendingRideId();
+    if (rideId != null && rideId.isNotEmpty && mounted) {
+      try {
+        final ride = await RideService().getRideById(rideId);
+        if (ride != null && mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => RequestDetailScreen(ride: ride),
+            ),
+          );
+        }
+      } catch (_) {}
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final notificationService = NotificationService();
+        final token = await notificationService.getToken();
+        if (token != null) await notificationService.saveTokenToUser(uid, token);
+      } catch (_) {}
     }
   }
 

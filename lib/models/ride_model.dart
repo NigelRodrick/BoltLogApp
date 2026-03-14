@@ -30,6 +30,10 @@ class RideModel {
   final String? senderPaymentMethod; // 'cash' or 'ecocash' - how sender will pay transporter
   // Final agreed amount for this delivery (used for fee calculation)
   final double? finalPrice;
+  // inDrive-style cancellation
+  final DateTime? cancelledAt;
+  final String? cancelledBy; // 'sender' or 'transporter' or 'system'
+  final String? cancellationReason;
 
   RideModel({
     this.id,
@@ -59,6 +63,9 @@ class RideModel {
     this.senderLastViewedAt,
     this.senderPaymentMethod,
     this.finalPrice,
+    this.cancelledAt,
+    this.cancelledBy,
+    this.cancellationReason,
   });
 
   Map<String, dynamic> toMap() {
@@ -90,6 +97,9 @@ class RideModel {
     if (lastCounterOfferBy != null) map['lastCounterOfferBy'] = lastCounterOfferBy;
     if (senderLastViewedAt != null) map['senderLastViewedAt'] = senderLastViewedAt;
     if (acceptedTransporterId != null) map['acceptedTransporterId'] = acceptedTransporterId;
+    if (cancelledAt != null) map['cancelledAt'] = cancelledAt!.toIso8601String();
+    if (cancelledBy != null) map['cancelledBy'] = cancelledBy;
+    if (cancellationReason != null) map['cancellationReason'] = cancellationReason;
     return map;
   }
 
@@ -122,6 +132,9 @@ class RideModel {
       senderLastViewedAt: map['senderLastViewedAt'],
       senderPaymentMethod: map['senderPaymentMethod'],
       finalPrice: map['finalPrice']?.toDouble(),
+      cancelledAt: map['cancelledAt'] != null ? DateTime.parse(map['cancelledAt']) : null,
+      cancelledBy: map['cancelledBy'],
+      cancellationReason: map['cancellationReason'],
     );
   }
 }

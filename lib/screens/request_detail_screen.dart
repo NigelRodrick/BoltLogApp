@@ -12,6 +12,7 @@ import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
 import '../config/testing_flags.dart';
 import '../utils/negotiation_utils.dart';
+import '../utils/chat_utils.dart';
 import 'active_ride_map_screen.dart';
 import 'chat_screen.dart';
 
@@ -579,6 +580,32 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                             ),
                           ),
                         ],
+                        if (isTransporter && (ride.finalPrice != null || ride.price != null)) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'You\'ll receive',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '\$${((ride.finalPrice ?? ride.price)! * (1 - PricingService.platformFeePercentage)).toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF15803D),
+                            ),
+                          ),
+                          Text(
+                            'after ${(PricingService.platformFeePercentage * 100).toInt()}% platform fee',
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
                         if (ride.senderPaymentMethod != null) ...[
                           const SizedBox(height: 12),
                           Container(
@@ -703,8 +730,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
               ),
               const SizedBox(height: 32),
 
-              // Action Buttons (for transporters)
-              if (user != null && user.uid != ride.userId && ride.status == 'open') ...[
+              // Action Buttons (for transporters): show when open or when pending (negotiating / sender accepted)
+              if (user != null &&
+                  user.uid != ride.userId &&
+                  (ride.status == 'open' ||
+                      (ride.status == 'pending' && ride.driverId == null))) ...[
                 if (isTransporter && isDriver && !isVerified)
                   Container(
                     width: double.infinity,
@@ -780,7 +810,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                                 ),
                               )
                             : Text(
-                                'Accept Offer',
+                                ride.priceStatus == 'accepted'
+                                    ? 'Accept delivery'
+                                    : 'Accept Offer',
                                 style: GoogleFonts.inter(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
@@ -847,12 +879,21 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   height: 48,
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChatScreen(ride: ride),
-                        ),
-                      );
+                      if (!isChatAllowedForRide(ride)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Chat is no longer available for this delivery.'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } else {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatScreen(ride: ride),
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.chat, size: 20),
                     label: Text(
@@ -862,6 +903,32 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF2563EB),
                       side: const BorderSide(color: Color(0xFF2563EB), width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+              // Transporter cancel (inDrive-style: driver can cancel, sender is notified)
+              if (user != null &&
+                  isTransporter &&
+                  transporterId != null &&
+                  (ride.acceptedTransporterId == transporterId || ride.driverId == transporterId) &&
+                  ride.status != 'completed' &&
+                  ride.status != 'cancelled') ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showTransporterCancelDialog(context, ride),
+                    icon: const Icon(Icons.cancel_outlined, size: 20),
+                    label: const Text('Cancel delivery'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red.shade700,
+                      side: BorderSide(color: Colors.red.shade400),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -1107,109 +1174,300 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
+  Future<void> _showTransporterCancelDialog(BuildContext context, RideModel ride) async {
+    if (ride.id == null) return;
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Cancel delivery?',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The sender will be notified. You can add a reason (optional).',
+              style: GoogleFonts.inter(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              decoration: InputDecoration(
+                labelText: 'Reason (optional)',
+                hintText: 'e.g. Unable to complete',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              maxLines: 2,
+              style: GoogleFonts.inter(fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Keep delivery', style: GoogleFonts.inter()),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Cancel delivery', style: GoogleFonts.inter(color: Colors.red.shade700)),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonController.text.trim().isEmpty ? null : reasonController.text.trim();
+    reasonController.dispose();
+    if (confirmed != true || !mounted) return;
+    try {
+      await _rideService.cancelRideWithReason(
+        ride.id!,
+        cancelledBy: 'transporter',
+        cancellationReason: reason,
+      );
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Delivery cancelled. Sender has been notified.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _showRenegotiateDialog(
       RideModel ride, String transporterId) async {
+    final basePrice = ride.price ?? ride.counterOffer ?? 0.0;
+    if (basePrice <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No offer amount to counter.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
     final controller = TextEditingController(
-      text: ride.price?.toStringAsFixed(2) ?? '',
+      text: basePrice.toStringAsFixed(2),
     );
 
     await showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
+        Future<void> sendCounterOffer(double value) async {
+          setState(() => _isOffering = true);
+          try {
+            await _rideService.submitCounterOffer(
+              ride.id!,
+              transporterId,
+              value,
+            );
+            if (mounted) {
+              Navigator.of(dialogContext).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Counter offer \$${value.toStringAsFixed(2)} sent to sender.',
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          } finally {
+            if (mounted) setState(() => _isOffering = false);
+          }
+        }
+
         return AlertDialog(
           title: Text(
-            'Renegotiate Price',
+            'Counter-Offer (inDrive style)',
             style: GoogleFonts.inter(
               fontSize: 18,
               fontWeight: FontWeight.w600,
               color: const Color(0xFF1E40AF),
             ),
           ),
-          content: TextField(
-            controller: controller,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: 'New price',
-              prefixText: '\$',
-              labelStyle: GoogleFonts.inter(),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sender\'s offer: \$${basePrice.toStringAsFixed(2)}',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Quick counter (tap to send):',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E40AF),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _QuickCounterButton(
+                        label: '+10%',
+                        amount: basePrice * 1.10,
+                        onPressed: _isOffering
+                            ? null
+                            : () => sendCounterOffer(basePrice * 1.10),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _QuickCounterButton(
+                        label: '+20%',
+                        amount: basePrice * 1.20,
+                        onPressed: _isOffering
+                            ? null
+                            : () => sendCounterOffer(basePrice * 1.20),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _QuickCounterButton(
+                        label: '+30%',
+                        amount: basePrice * 1.30,
+                        onPressed: _isOffering
+                            ? null
+                            : () => sendCounterOffer(basePrice * 1.30),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Or enter custom amount:',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1E40AF),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: controller,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Your price',
+                    prefixText: '\$',
+                    labelStyle: GoogleFonts.inter(),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(
                 'Cancel',
                 style: GoogleFonts.inter(color: Colors.grey.shade700),
               ),
             ),
             ElevatedButton(
-              onPressed: () async {
-                final text = controller.text.trim();
-                final value = double.tryParse(text);
-                if (value == null || value <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a valid price'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
-
-                setState(() {
-                  _isOffering = true;
-                });
-
-                try {
-                  await _rideService.submitCounterOffer(
-                    ride.id!,
-                    transporterId,
-                    value,
-                  );
-                  if (mounted) {
-                    Navigator.of(context).pop(); // Close dialog
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Counter offer sent to sender.',
-                        ),
-                        backgroundColor: Colors.green,
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error: ${e.toString()}'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                } finally {
-                  if (mounted) {
-                    setState(() {
-                      _isOffering = false;
-                    });
-                  }
-                }
-              },
+              onPressed: _isOffering
+                  ? null
+                  : () async {
+                      final value = double.tryParse(controller.text.trim());
+                      if (value == null || value < PricingService.minimumFloorPrice) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Minimum \$${PricingService.minimumFloorPrice.toStringAsFixed(2)}.',
+                            ),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                        return;
+                      }
+                      await sendCounterOffer(value);
+                    },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2563EB),
                 foregroundColor: Colors.white,
               ),
               child: Text(
                 'Send Offer',
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w600,
-                ),
+                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
               ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+/// Quick counter-offer button: +10%, +20%, +30% of sender's offer.
+class _QuickCounterButton extends StatelessWidget {
+  final String label;
+  final double amount;
+  final VoidCallback? onPressed;
+
+  const _QuickCounterButton({
+    required this.label,
+    required this.amount,
+    this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF2563EB),
+        side: const BorderSide(color: Color(0xFF2563EB)),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            '\$${amount.toStringAsFixed(2)}',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
