@@ -199,7 +199,7 @@ class RideService {
     try {
       final notificationService = NotificationService();
       if (cancelledBy == 'transporter') {
-        final senderId = rideData['userId'] as String?;
+        final senderId = data['userId'] as String?;
         if (senderId != null) {
           await notificationService.createNotification(
             userId: senderId,

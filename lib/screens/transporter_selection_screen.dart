@@ -300,6 +300,10 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                       );
                     }
 
+                    final ride = _cachedRide;
+                    if (ride == null) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: offers.length,
