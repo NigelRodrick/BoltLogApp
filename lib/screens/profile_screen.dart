@@ -35,6 +35,138 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Widget _buildProfileIncompleteNotification() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade100,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.shade300),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded,
+              color: Colors.amber.shade800, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Your profile is incomplete. Complete it to start accepting deliveries.',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.amber.shade900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Returns 0.0..1.0 for transporter profile completion (same 5 steps as dashboard).
+  static double _driverProfileProgressValue(UserModel? userModel) {
+    if (userModel == null) return 0.0;
+    const int totalSteps = 5;
+    int completedSteps = 0;
+    if ((userModel.displayName ?? '').isNotEmpty &&
+        (userModel.phoneNumber ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.truckType ?? '').isNotEmpty &&
+        (userModel.vehicleNumber ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.carBookImageUrl ?? '').isNotEmpty &&
+        (userModel.truckSideImageUrl ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.driverLicenseImageUrl ?? '').isNotEmpty &&
+        (userModel.selfieImageUrl ?? '').isNotEmpty) completedSteps++;
+    final verificationStatus =
+        (userModel.verificationStatus ?? 'pending').toLowerCase();
+    if (verificationStatus == 'auto_verified' ||
+        verificationStatus == 'verified') completedSteps++;
+    return (completedSteps / totalSteps).clamp(0.0, 1.0).toDouble();
+  }
+
+  Widget _buildDriverProfileProgress(UserModel? userModel) {
+    if (userModel == null) return const SizedBox.shrink();
+
+    final double progress = _driverProfileProgressValue(userModel);
+    final int percentage = (progress * 100).round();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Transporter account setup',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1E40AF),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: progress >= 1.0
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  progress >= 1.0 ? '100% COMPLETE' : '$percentage% COMPLETE',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: progress >= 1.0
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                progress >= 1.0 ? Colors.green : const Color(0xFF2563EB),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            progress >= 1.0
+                ? 'Your transporter profile is fully set up and ready to use.'
+                : 'Complete your transporter profile to start accepting more deliveries.',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleSwitchToDriver(UserModel user) async {
     // Check if driver profile is complete
     final hasTruckType = user.truckType != null && user.truckType!.isNotEmpty;
@@ -209,6 +341,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              // Profile incomplete notification (transporter only)
+              if ((_user?.role.trim().toLowerCase() ?? '') == 'driver' &&
+                  _driverProfileProgressValue(_user) < 1.0)
+                _buildProfileIncompleteNotification(),
+              if ((_user?.role.trim().toLowerCase() ?? '') == 'driver' &&
+                  _driverProfileProgressValue(_user) < 1.0)
+                const SizedBox(height: 16),
               // Profile header
               Container(
                 padding: const EdgeInsets.all(24),
@@ -309,6 +448,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+              // Transporter account setup progress (shown under profile header for drivers)
+              if ((_user?.role?.trim().toLowerCase() ?? '') == 'driver')
+                _buildDriverProfileProgress(_user),
+              if ((_user?.role?.trim().toLowerCase() ?? '') == 'driver')
+                const SizedBox(height: 24),
               // Profile details
               _buildProfileItem(
                 Icons.phone,

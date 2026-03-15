@@ -25,6 +25,8 @@ class RideModel {
   final double? counterOffer; // Latest negotiated amount
   final String? priceStatus; // 'pending', 'accepted', 'rejected'
   final String? lastCounterOfferBy; // 'sender' or 'transporter' - who sent the last counter-offer
+  /// Transporter currently in negotiation (who last sent or received a counter). Ensures correct sender/transporter see the right amounts when multiple transporters have offers.
+  final String? negotiatingTransporterId;
   final String? senderLastViewedAt; // When sender last viewed the request (ISO8601)
   // Payment method for sender to pay transporter
   final String? senderPaymentMethod; // 'cash' or 'ecocash' - how sender will pay transporter
@@ -60,6 +62,7 @@ class RideModel {
     this.counterOffer,
     this.priceStatus,
     this.lastCounterOfferBy,
+    this.negotiatingTransporterId,
     this.senderLastViewedAt,
     this.senderPaymentMethod,
     this.finalPrice,
@@ -95,6 +98,7 @@ class RideModel {
     };
     if (driverId != null) map['driverId'] = driverId;
     if (lastCounterOfferBy != null) map['lastCounterOfferBy'] = lastCounterOfferBy;
+    if (negotiatingTransporterId != null) map['negotiatingTransporterId'] = negotiatingTransporterId;
     if (senderLastViewedAt != null) map['senderLastViewedAt'] = senderLastViewedAt;
     if (acceptedTransporterId != null) map['acceptedTransporterId'] = acceptedTransporterId;
     if (cancelledAt != null) map['cancelledAt'] = cancelledAt!.toIso8601String();
@@ -111,27 +115,28 @@ class RideModel {
       acceptedTransporterId: map['acceptedTransporterId'],
       pickupLocation: map['pickupLocation'] ?? '',
       dropoffLocation: map['dropoffLocation'] ?? '',
-      pickupLat: map['pickupLat']?.toDouble(),
-      pickupLng: map['pickupLng']?.toDouble(),
-      dropoffLat: map['dropoffLat']?.toDouble(),
-      dropoffLng: map['dropoffLng']?.toDouble(),
+      pickupLat: (map['pickupLat'] as num?)?.toDouble(),
+      pickupLng: (map['pickupLng'] as num?)?.toDouble(),
+      dropoffLat: (map['dropoffLat'] as num?)?.toDouble(),
+      dropoffLng: (map['dropoffLng'] as num?)?.toDouble(),
       status: map['status'] ?? 'open',
-      price: map['price']?.toDouble(),
+      price: (map['price'] as num?)?.toDouble(),
       createdAt: DateTime.parse(map['createdAt'] ?? DateTime.now().toIso8601String()),
       completedAt: map['completedAt'] != null ? DateTime.parse(map['completedAt']) : null,
       notes: map['notes'],
       packageDescription: map['packageDescription'],
-      weight: map['weight']?.toDouble(),
+      weight: (map['weight'] as num?)?.toDouble(),
       dimensions: map['dimensions'],
       packageType: map['packageType'],
       transportType: map['transportType'],
-      estimatedValue: map['estimatedValue']?.toDouble(),
-      counterOffer: map['counterOffer']?.toDouble(),
+      estimatedValue: (map['estimatedValue'] as num?)?.toDouble(),
+      counterOffer: (map['counterOffer'] as num?)?.toDouble(),
       priceStatus: map['priceStatus'],
       lastCounterOfferBy: map['lastCounterOfferBy'],
+      negotiatingTransporterId: map['negotiatingTransporterId'],
       senderLastViewedAt: map['senderLastViewedAt'],
       senderPaymentMethod: map['senderPaymentMethod'],
-      finalPrice: map['finalPrice']?.toDouble(),
+      finalPrice: (map['finalPrice'] as num?)?.toDouble(),
       cancelledAt: map['cancelledAt'] != null ? DateTime.parse(map['cancelledAt']) : null,
       cancelledBy: map['cancelledBy'],
       cancellationReason: map['cancellationReason'],

@@ -174,10 +174,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Negotiation status (persistent: transporter sees sender viewing / viewed)
+                        // Negotiation status: only the transporter in active negotiation sees these (any sender + multiple transporters)
                         if (isTransporter &&
                             ride.status == 'pending' &&
-                            ride.priceStatus == 'pending') ...[
+                            ride.priceStatus == 'pending' &&
+                            (ride.negotiatingTransporterId == null ||
+                                ride.negotiatingTransporterId == transporterId)) ...[
                           if (ride.lastCounterOfferBy == 'transporter')
                             Container(
                               width: double.infinity,
@@ -229,6 +231,54 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.blue.shade900,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          // Only the transporter in active negotiation sees sender's counter (works for any sender + multiple transporters)
+                          if (ride.lastCounterOfferBy == 'sender' &&
+                              ride.counterOffer != null &&
+                              (ride.negotiatingTransporterId == null ||
+                                  ride.negotiatingTransporterId == transporterId))
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.tag_faces,
+                                      color: Colors.green.shade800, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: RichText(
+                                      text: TextSpan(
+                                        style: GoogleFonts.inter(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.green.shade900,
+                                        ),
+                                        children: [
+                                          const TextSpan(
+                                            text: 'Sender\'s counter-offer: ',
+                                          ),
+                                          TextSpan(
+                                            text:
+                                                '\$${ride.counterOffer!.toStringAsFixed(2)}. '
+                                                'You can accept or renegotiate.',
+                                            style: GoogleFonts.inter(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.green.shade900,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
@@ -550,6 +600,33 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                           ),
                         ),
                         if (isTransporter &&
+                            ride.priceStatus == 'pending' &&
+                            ride.counterOffer != null &&
+                            (ride.negotiatingTransporterId == null ||
+                                ride.negotiatingTransporterId == transporterId)) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            ride.lastCounterOfferBy == 'sender'
+                                ? 'Sender\'s counter-offer'
+                                : 'Your counter-offer',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '\$${ride.counterOffer!.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: ride.lastCounterOfferBy == 'sender'
+                                  ? Colors.green.shade700
+                                  : Colors.amber.shade800,
+                            ),
+                          ),
+                        ],
+                        if (isTransporter &&
                             userModel?.ratePer10Km != null &&
                             userModel!.ratePer10Km! > 0 &&
                             ride.pickupLat != null &&
@@ -580,7 +657,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                             ),
                           ),
                         ],
-                        if (isTransporter && (ride.finalPrice != null || ride.price != null)) ...[
+                        if (isTransporter && (ride.finalPrice != null || ride.counterOffer != null || ride.price != null)) ...[
                           const SizedBox(height: 10),
                           Text(
                             'You\'ll receive',
@@ -591,7 +668,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '\$${((ride.finalPrice ?? ride.price)! * (1 - PricingService.platformFeePercentage)).toStringAsFixed(2)}',
+                            '\$${((ride.finalPrice ?? ride.counterOffer ?? ride.price)! * (1 - PricingService.platformFeePercentage)).toStringAsFixed(2)}',
                             style: GoogleFonts.inter(
                               fontSize: 18,
                               fontWeight: FontWeight.w700,
@@ -735,6 +812,17 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   user.uid != ride.userId &&
                   (ride.status == 'open' ||
                       (ride.status == 'pending' && ride.driverId == null))) ...[
+                if (isTransporter && isDriver)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'You can accept at the suggested price or send a counter-offer.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
                 if (isTransporter && isDriver && !isVerified)
                   Container(
                     width: double.infinity,
@@ -839,7 +927,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     child: Text(
-                      'Renegotiate Price',
+                      (ride.negotiatingTransporterId == transporterId ||
+                              ride.counterOffer == null)
+                          ? 'Make offer / Counter-offer'
+                          : 'Renegotiate Price',
                       style: GoogleFonts.inter(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -1099,13 +1190,31 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     }
   }
 
-  void _declineRequest() {
+  Future<void> _declineRequest() async {
+    final rideId = widget.ride.id;
+    final user = FirebaseAuth.instance.currentUser;
+    if (rideId != null && user != null && user.uid != widget.ride.userId) {
+      try {
+        await _rideService.transporterDeclineRequest(rideId, user.uid);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('You declined this request.'),
-        backgroundColor: Colors.orange.shade700,
-        duration: const Duration(seconds: 2),
+      const SnackBar(
+        content: Text('You declined this request. It is now open to other transporters.'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -1132,7 +1241,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       await _rideService.createOrUpdateOffer(
         ride.id!,
         transporterId,
-        priceOffer: ride.price,
+        priceOffer: ride.finalPrice ?? ride.counterOffer ?? ride.price,
       );
 
       // Actually accept the ride (this sets driverId and changes status to in_progress)
@@ -1246,7 +1355,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   Future<void> _showRenegotiateDialog(
       RideModel ride, String transporterId) async {
-    final basePrice = ride.price ?? ride.counterOffer ?? 0.0;
+    // Use latest counter-offer (sender's or ours) as base so renegotiate reflects current amount
+    final basePrice = ride.counterOffer ?? ride.price ?? 0.0;
     if (basePrice <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -26,6 +26,24 @@ class MessagingService {
     }
   }
 
+  /// Sends a persistent chat message when a transporter is selected for a delivery.
+  /// Both sender and transporter see it in the ride chat.
+  Future<String> sendTransporterSelectedMessage({
+    required String rideId,
+    required String senderId,
+    required String transporterId,
+  }) async {
+    final message = MessageModel(
+      rideId: rideId,
+      senderId: senderId,
+      receiverId: transporterId,
+      message: 'A transporter has been selected for this delivery. You can chat here to coordinate pickup.',
+      timestamp: DateTime.now(),
+      isRead: false,
+    );
+    return sendMessage(message);
+  }
+
   // Stream messages with cache metadata so UI can show offline/syncing state
   Stream<MessagesSnapshot> streamMessages(String rideId, {int limit = 100}) {
     return _firestore

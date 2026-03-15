@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../models/ride_model.dart';
 import '../models/user_model.dart';
 import '../models/transporter_offer_model.dart';
+import 'messaging_service.dart';
 import 'pricing_service.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
@@ -234,8 +235,8 @@ class RideService {
 
   // Get available rides for transporters (open, no driver assigned)
   // Rides are automatically excluded when:
-  // 1. Status changes from 'open' to 'in_progress' (when accepted)
-  // 2. driverId is set (when accepted)
+  // Only 'open' rides are available. When an order is in negotiation (status 'pending'
+  // or negotiatingTransporterId set), it is unavailable to other transporters.
   Stream<List<RideModel>> streamAvailableRides() {
     return _firestore
         .collection('rides')
@@ -298,15 +299,19 @@ class RideService {
             } catch (_) {}
             // #endregion
             
-            // Only include rides that are still open and have no driver assigned
-            // This ensures accepted rides (status='in_progress' or driverId set) are excluded
-            if ((driverId == null || 
+            // Only include rides that are still open, have no driver, and are not in negotiation.
+            // Rides in negotiation (status 'pending' or negotiatingTransporterId set) are unavailable to other transporters.
+            final negotiatingTransporterId = data['negotiatingTransporterId']?.toString().trim();
+            final isInNegotiation = negotiatingTransporterId != null && negotiatingTransporterId.isNotEmpty;
+            if ((driverId == null ||
                 (driverId is String && driverId.isEmpty) ||
                 (driverId?.toString().trim().isEmpty ?? false)) &&
-                data['status'] == 'open') {
+                data['status'] == 'open' &&
+                !isInNegotiation) {
               try {
                 final ride = RideModel.fromMap(data, doc.id);
-                // Double check the ride model also has null driverId and is still open
+                if (ride.negotiatingTransporterId != null &&
+                    ride.negotiatingTransporterId!.trim().isNotEmpty) continue;
                 if (ride.driverId == null && ride.status == 'open') {
                   rides.add(ride);
                   
@@ -513,6 +518,56 @@ class RideService {
     }
   }
 
+  /// When sender declines an offer (without counter-offer), reject that offer and reopen the ride
+  /// so it becomes visible to other transporters again.
+  Future<void> rejectOfferAndReopenRide(String rideId, String offerId) async {
+    try {
+      final offerDoc = await _offerCollection(rideId).doc(offerId).get();
+      if (!offerDoc.exists) return;
+      await _firestore.collection('rides').doc(rideId).update({
+        'status': 'open',
+        'counterOffer': null,
+        'priceStatus': null,
+        'negotiatingTransporterId': null,
+        'lastCounterOfferBy': null,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      await _offerCollection(rideId).doc(offerId).update({
+        'status': 'rejected',
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      throw Exception('Error rejecting offer and reopening ride: $e');
+    }
+  }
+
+  /// When transporter declines the request, reopen the ride so it is visible to other transporters again.
+  Future<void> transporterDeclineRequest(String rideId, String transporterId) async {
+    try {
+      final offersRef = _offerCollection(rideId);
+      final snapshot = await offersRef
+          .where('transporterId', isEqualTo: transporterId)
+          .limit(1)
+          .get();
+      await _firestore.collection('rides').doc(rideId).update({
+        'status': 'open',
+        'counterOffer': null,
+        'priceStatus': null,
+        'negotiatingTransporterId': null,
+        'lastCounterOfferBy': null,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+      for (final doc in snapshot.docs) {
+        await doc.reference.update({
+          'status': 'rejected',
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+      }
+    } catch (e) {
+      throw Exception('Error declining request: $e');
+    }
+  }
+
   // Accept a transport request
   // For direct acceptance (no negotiation): Deduction happens immediately
   // For negotiation: Deduction happens when sender accepts counter-offer (in respondToCounterOffer)
@@ -542,9 +597,12 @@ class RideService {
           throw Exception('Ride has already been accepted by another transporter');
         }
         
-        // Lock-in: use finalPrice (agreed amount) when set, else rider's price
+        // Lock-in: use finalPrice (agreed) else current counter-offer else rider's price
         final price = (rideData['price'] as num?)?.toDouble() ?? 0.0;
-        final negotiatedFare = (rideData['finalPrice'] as num?)?.toDouble() ?? price;
+        final counterOffer = (rideData['counterOffer'] as num?)?.toDouble();
+        final negotiatedFare = (rideData['finalPrice'] as num?)?.toDouble() ??
+            counterOffer ??
+            price;
         final fee = negotiatedFare * PricingService.platformFeePercentage;
 
         const allowedVerifiedStatuses = ['auto_verified', 'verified'];
@@ -604,17 +662,41 @@ class RideService {
           }
         }
 
-        // Accept ride: move from NEGOTIATING/ACCEPTED to in_progress; lock final_fare if not set
+        // Accept ride: move to in_progress; lock final fare if not set (use counterOffer when in negotiation)
         final updatePayload = <String, dynamic>{
           'driverId': transporterId,
           'status': 'in_progress',
           'updatedAt': DateTime.now().toIso8601String(),
         };
         if (rideData['finalPrice'] == null) {
-          updatePayload['finalPrice'] = price; // Direct accept: lock rider's price as final
+          updatePayload['finalPrice'] = counterOffer ?? price;
         }
         transaction.update(rideRef, updatePayload);
       });
+
+      // Add a message to the ride chat and notify transporter
+      try {
+        final rideDoc = await _firestore.collection('rides').doc(rideId).get();
+        final rideData = rideDoc.data();
+        final senderUserId = rideData?['userId'] as String?;
+        if (senderUserId != null) {
+          await MessagingService().sendTransporterSelectedMessage(
+            rideId: rideId,
+            senderId: senderUserId,
+            transporterId: transporterId,
+          );
+          await NotificationService().createNotification(
+            userId: transporterId,
+            type: 'transporter_selected',
+            title: 'You were selected',
+            message: 'You have been selected for this delivery. Open the chat to coordinate pickup.',
+            rideId: rideId,
+            data: {'rideId': rideId},
+          );
+        }
+      } catch (chatError) {
+        debugPrint('Error sending transporter-selected chat message: $chatError');
+      }
       
       // After transaction, if there was negotiation and balance insufficient, notify
       try {
@@ -625,6 +707,7 @@ class RideService {
         
         if (hasCounterOffer) {
           final negotiatedFare = (rideData?['finalPrice'] as num?)?.toDouble() ??
+              (rideData?['counterOffer'] as num?)?.toDouble() ??
               (rideData?['price'] as num?)?.toDouble() ?? 0.0;
           final fee = negotiatedFare * PricingService.platformFeePercentage;
           
@@ -881,12 +964,13 @@ class RideService {
       final rideData = rideDoc.data() as Map<String, dynamic>;
       final senderId = rideData['userId'] as String?;
       
-      // Update the ride with counter-offer; transporter sent last so sender is viewing / waiting for reply
+      // Update the ride with counter-offer; mark this transporter as the one in negotiation (works for any sender/transporter)
       await _firestore.collection('rides').doc(rideId).update({
         'counterOffer': counterOffer,
         'priceStatus': 'pending',
         'status': 'pending',
         'lastCounterOfferBy': 'transporter',
+        'negotiatingTransporterId': transporterId,
         'updatedAt': DateTime.now().toIso8601String(),
       });
 
@@ -941,11 +1025,13 @@ class RideService {
           throw Exception('Transporter ID not found in offer');
         }
 
-        // Update ride with sender's counter-offer - keep status as 'pending' (negotiation continues)
+        // Update ride with sender's counter-offer; keep this transporter as the one in negotiation
         transaction.update(rideRef, {
           'counterOffer': senderCounterOffer,
           'priceStatus': 'pending',
-          'status': 'pending', // Keep in negotiation
+          'status': 'pending',
+          'lastCounterOfferBy': 'sender',
+          'negotiatingTransporterId': transporterId,
           'updatedAt': DateTime.now().toIso8601String(),
         });
 
@@ -1012,12 +1098,13 @@ class RideService {
             throw Exception('Transporter ID not found in offer');
           }
 
-          // Update ride with sender's counter-offer; sender sent last so waiting for transporter
+          // Update ride with sender's counter-offer; this offer's transporter is the one in negotiation
           transaction.update(rideRef, {
             'counterOffer': senderCounterOffer,
             'priceStatus': 'pending',
             'status': 'pending',
             'lastCounterOfferBy': 'sender',
+            'negotiatingTransporterId': transporterId,
             'updatedAt': DateTime.now().toIso8601String(),
           });
 
@@ -1059,14 +1146,14 @@ class RideService {
           
           // Update ride with accepted counter-offer
           // When sender accepts, set priceStatus to 'accepted' but keep status as 'pending'
-          // Transporter must then accept the ride to proceed
           final updateData = <String, dynamic>{
             'price': counterOffer,
-            'finalPrice': counterOffer, // store final agreed amount
+            'finalPrice': counterOffer,
             'counterOffer': null,
-            'priceStatus': 'accepted', // Sender approved the negotiated amount
-            'status': 'pending', // Keep as pending until transporter accepts ride
-            'acceptedTransporterId': transporterId, // So sender can chat with transporter before Accept
+            'priceStatus': 'accepted',
+            'status': 'pending',
+            'acceptedTransporterId': transporterId,
+            'negotiatingTransporterId': transporterId, // keep for clarity; this transporter was chosen
             'updatedAt': DateTime.now().toIso8601String(),
           };
           transaction.update(rideRef, updateData);
@@ -1091,11 +1178,12 @@ class RideService {
           // Don't deduct fee yet - deduction happens when transporter accepts ride
           // Fee will be deducted in acceptRide() after sender has approved
         } else {
-          // Reject the counter-offer - change status back to 'open' so ride is available again
+          // Reject the counter-offer - clear negotiation so any transporter can negotiate
           transaction.update(rideRef, {
             'counterOffer': null,
             'priceStatus': 'rejected',
-            'status': 'open', // Negotiation cancelled, ride available again
+            'status': 'open',
+            'negotiatingTransporterId': null,
             'updatedAt': DateTime.now().toIso8601String(),
           });
 
@@ -1117,6 +1205,7 @@ class RideService {
           final rideData = rideDoc.data();
           final agreedPrice =
               (rideData?['price'] as num?)?.toDouble() ?? 0.0;
+          final senderUserId = rideData?['userId'] as String?;
 
           final notificationService = NotificationService();
           await notificationService.createNotification(
@@ -1131,6 +1220,14 @@ class RideService {
               'rideId': rideId,
             },
           );
+
+          if (senderUserId != null) {
+            await MessagingService().sendTransporterSelectedMessage(
+              rideId: rideId,
+              senderId: senderUserId,
+              transporterId: transporterId,
+            );
+          }
         }
       }
 

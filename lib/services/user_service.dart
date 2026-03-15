@@ -124,6 +124,17 @@ class UserService {
     return null;
   }
 
+  /// Fetch multiple users by ID. Returns list in same order as [uids]; null where user not found.
+  Future<List<UserModel?>> getUsersByIds(List<String> uids) async {
+    if (uids.isEmpty) return [];
+    final results = await Future.wait(
+      uids.map((id) => _firestore.collection('users').doc(id).get()),
+    );
+    return results
+        .map((snap) => snap.exists ? UserModel.fromMap(snap.data()!) : null)
+        .toList();
+  }
+
   // Stream user data
   Stream<UserModel?> streamUser(String uid) {
     return _firestore

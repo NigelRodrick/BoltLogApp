@@ -131,15 +131,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                         final deliveries = deliveriesSnapshot.data ?? [];
                         final completedRides = completedDeliveriesSnapshot.data ?? [];
 
-                        // Filter by vehicle type then inDrive-style: nearby only, sorted by distance
+                        // Only show requests that match this transporter's vehicle type (when order has a type selected)
                         final allAvailableRides = availableRidesSnapshot.data ?? [];
-                        List<RideModel> availableRides = allAvailableRides;
-                        final driverTruckType = userModel?.truckType;
-                        if (driverTruckType != null && driverTruckType.isNotEmpty) {
-                          availableRides = allAvailableRides
-                              .where((ride) => ride.transportType == null || ride.transportType == driverTruckType)
-                              .toList();
-                        }
+                        List<RideModel> availableRides = allAvailableRides
+                            .where((ride) {
+                              final orderType = ride.transportType;
+                              final driverTruckType = userModel?.truckType;
+                              if (orderType == null || orderType.isEmpty)
+                                return true;
+                              return driverTruckType != null &&
+                                  driverTruckType.isNotEmpty &&
+                                  orderType == driverTruckType;
+                            })
+                            .toList();
                         availableRides = filterAndSortRidesByDistance(
                           availableRides,
                           driverLat: userModel?.currentLat,
@@ -189,6 +193,42 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Profile incomplete notification
+                            if (userModel != null &&
+                                _driverProfileProgressValue(userModel) < 1.0)
+                              Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.amber.shade300,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: Colors.amber.shade800,
+                                      size: 24,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'Your profile is incomplete. Complete it in the Profile tab.',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.amber.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             if (!isVerified)
                               Container(
                                 width: double.infinity,
@@ -227,10 +267,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               ),
                             // Availability Toggle
                             _buildAvailabilityToggle(user.uid, isAvailable),
-                            const SizedBox(height: 20),
-                            
-                            // Account setup progress
-                            _buildProfileProgress(userModel),
                             const SizedBox(height: 20),
                             
                             // Stats Cards
@@ -481,48 +517,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     }
   }
 
+  /// Returns 0.0..1.0 for transporter profile completion (same 5 steps as profile screen).
+  double _driverProfileProgressValue(UserModel? userModel) {
+    if (userModel == null) return 0.0;
+    const int totalSteps = 5;
+    int completedSteps = 0;
+    if ((userModel.displayName ?? '').isNotEmpty &&
+        (userModel.phoneNumber ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.truckType ?? '').isNotEmpty &&
+        (userModel.vehicleNumber ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.carBookImageUrl ?? '').isNotEmpty &&
+        (userModel.truckSideImageUrl ?? '').isNotEmpty) completedSteps++;
+    if ((userModel.driverLicenseImageUrl ?? '').isNotEmpty &&
+        (userModel.selfieImageUrl ?? '').isNotEmpty) completedSteps++;
+    final verificationStatus =
+        (userModel.verificationStatus ?? 'pending').toLowerCase();
+    if (verificationStatus == 'auto_verified' ||
+        verificationStatus == 'verified') completedSteps++;
+    return (completedSteps / totalSteps).clamp(0.0, 1.0).toDouble();
+  }
+
   Widget _buildProfileProgress(UserModel? userModel) {
     if (userModel == null) {
       return const SizedBox.shrink();
     }
 
-    const int totalSteps = 5;
-    int completedSteps = 0;
-
-    // Step 1: Basic profile details
-    if ((userModel.displayName ?? '').isNotEmpty &&
-        (userModel.phoneNumber ?? '').isNotEmpty) {
-      completedSteps++;
-    }
-
-    // Step 2: Vehicle information
-    if ((userModel.truckType ?? '').isNotEmpty &&
-        (userModel.vehicleNumber ?? '').isNotEmpty) {
-      completedSteps++;
-    }
-
-    // Step 3: Car book and truck side view uploaded
-    if ((userModel.carBookImageUrl ?? '').isNotEmpty &&
-        (userModel.truckSideImageUrl ?? '').isNotEmpty) {
-      completedSteps++;
-    }
-
-    // Step 4: License and selfie uploaded
-    if ((userModel.driverLicenseImageUrl ?? '').isNotEmpty &&
-        (userModel.selfieImageUrl ?? '').isNotEmpty) {
-      completedSteps++;
-    }
-
-    // Step 5: Verification completed
-    final verificationStatus =
-        (userModel.verificationStatus ?? 'pending').toLowerCase();
-    if (verificationStatus == 'auto_verified' ||
-        verificationStatus == 'verified') {
-      completedSteps++;
-    }
-
-    final double progress =
-        (completedSteps / totalSteps).clamp(0.0, 1.0).toDouble();
+    final double progress = _driverProfileProgressValue(userModel);
     final int percentage = (progress * 100).round();
 
     return Container(

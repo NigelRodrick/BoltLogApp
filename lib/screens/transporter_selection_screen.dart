@@ -6,9 +6,208 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/ride_model.dart';
 import '../models/transporter_offer_model.dart';
 import '../models/user_model.dart';
+import '../services/pricing_service.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
+import '../services/user_service.dart';
 import '../utils/negotiation_utils.dart';
+
+/// Filters offers to transporters whose truckType matches the ride's transportType,
+/// and sorts by default price (distance × rate) ascending so sender can compare charges.
+Future<List<TransporterOfferModel>> _filterAndSortOffersByTransportTypeAndCharge(
+  RideModel ride,
+  List<TransporterOfferModel> offers,
+  UserService userService,
+) async {
+  if (offers.isEmpty) return [];
+  final uids = offers.map((o) => o.transporterId).toList();
+  final users = await userService.getUsersByIds(uids);
+  final rideType = ride.transportType;
+  final hasCoords = ride.pickupLat != null &&
+      ride.pickupLng != null &&
+      ride.dropoffLat != null &&
+      ride.dropoffLng != null;
+  final distanceKm = hasCoords
+      ? PricingService.calculateDistance(
+          ride.pickupLat!,
+          ride.pickupLng!,
+          ride.dropoffLat!,
+          ride.dropoffLng!,
+        )
+      : 0.0;
+
+  final List<({TransporterOfferModel offer, double sortPrice})> withPrice = [];
+  for (int i = 0; i < offers.length; i++) {
+    final u = i < users.length ? users[i] : null;
+    final matchesType = rideType == null ||
+        rideType.isEmpty ||
+        (u?.truckType != null && u!.truckType == rideType);
+    if (!matchesType) continue;
+
+    double sortPrice = double.infinity;
+    if (hasCoords && u?.ratePer10Km != null && u!.ratePer10Km! > 0) {
+      final p = PricingService.calculateDriverPriceForDistance(
+        distanceKm,
+        u.ratePer10Km,
+      );
+      if (p != null) sortPrice = p;
+    }
+    withPrice.add((offer: offers[i], sortPrice: sortPrice));
+  }
+  withPrice.sort((a, b) => a.sortPrice.compareTo(b.sortPrice));
+  return withPrice.map((e) => e.offer).toList();
+}
+
+String _vehicleTypeLabel(String? type) {
+  if (type == null || type.isEmpty) return 'Any';
+  switch (type) {
+    case 'bike_express':
+      return 'Bike Express';
+    case 'runner':
+      return 'Runner';
+    case 'pickup':
+      return 'Pickup (1.2t)';
+    case 'truck_5t':
+      return 'Truck (5t)';
+    case 'truck_10t':
+      return 'Truck (10t)';
+    case 'truck_20t':
+      return 'Truck (20t)';
+    default:
+      return type;
+  }
+}
+
+/// Sender sees nearby transporters (matching selected type) and their price rates.
+class _NearbyTransportersSection extends StatelessWidget {
+  final List<UserModel> drivers;
+  final RideModel ride;
+  final double distanceKm;
+
+  const _NearbyTransportersSection({
+    required this.drivers,
+    required this.ride,
+    required this.distanceKm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.people_outline, size: 18, color: Colors.grey.shade700),
+              const SizedBox(width: 6),
+              Text(
+                'Transporters nearby (${_vehicleTypeLabel(ride.transportType)})',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1E40AF),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (drivers.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'No transporters of this type nearby. They will appear here when available.',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: 120,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: drivers.length,
+                itemBuilder: (context, index) {
+                  final d = drivers[index];
+                  final defaultPrice = PricingService.calculateDriverPriceForDistance(
+                    distanceKm,
+                    d.ratePer10Km,
+                  );
+                  return Container(
+                    width: 160,
+                    margin: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          d.displayName ?? 'Transporter',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF1E40AF),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (d.truckType != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _vehicleTypeLabel(d.truckType),
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                        if (d.ratePer10Km != null && d.ratePer10Km! > 0) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '\$${d.ratePer10Km!.toStringAsFixed(0)}/10 km',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                        if (defaultPrice != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Est. \$${defaultPrice.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF2563EB),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class TransporterSelectionScreen extends StatefulWidget {
   final String rideId;
@@ -193,15 +392,18 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                               ),
                             ),
                           if (ride.counterOffer != null &&
-                              ride.priceStatus == 'pending' &&
-                              ride.lastCounterOfferBy == 'transporter') ...[
+                              ride.priceStatus == 'pending') ...[
                             const SizedBox(height: 4),
                             Text(
-                              'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}',
+                              ride.lastCounterOfferBy == 'transporter'
+                                  ? 'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}'
+                                  : 'Your counter-offer: \$${ride.counterOffer!.toStringAsFixed(2)}',
                               style: GoogleFonts.inter(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.amber.shade800,
+                                color: ride.lastCounterOfferBy == 'transporter'
+                                    ? Colors.amber.shade800
+                                    : Colors.green.shade700,
                               ),
                             ),
                           ],
@@ -254,6 +456,54 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                   );
                 },
               ),
+              // Sender sees transporters nearby (matching selected type) and their price rates
+              if (_cachedRide != null &&
+                  _cachedRide!.pickupLat != null &&
+                  _cachedRide!.pickupLng != null)
+                StreamBuilder<List<UserModel>>(
+                  stream: UserService().getNearbyDrivers(
+                    latitude: _cachedRide!.pickupLat!,
+                    longitude: _cachedRide!.pickupLng!,
+                    radiusKm: 25,
+                  ),
+                  builder: (context, driverSnapshot) {
+                    final allDrivers = driverSnapshot.data ?? [];
+                    final ride = _cachedRide!;
+                    final orderType = ride.transportType;
+                    final filtered = orderType == null || orderType.isEmpty
+                        ? allDrivers
+                        : allDrivers
+                            .where((d) => d.truckType == orderType)
+                            .toList();
+                    final distanceKm = ride.dropoffLat != null &&
+                            ride.dropoffLng != null
+                        ? PricingService.calculateDistance(
+                            ride.pickupLat!,
+                            ride.pickupLng!,
+                            ride.dropoffLat!,
+                            ride.dropoffLng!,
+                          )
+                        : 0.0;
+                    filtered.sort((a, b) {
+                      final pa = PricingService.calculateDriverPriceForDistance(
+                            distanceKm,
+                            a.ratePer10Km,
+                          ) ??
+                          double.infinity;
+                      final pb = PricingService.calculateDriverPriceForDistance(
+                            distanceKm,
+                            b.ratePer10Km,
+                          ) ??
+                          double.infinity;
+                      return pa.compareTo(pb);
+                    });
+                    return _NearbyTransportersSection(
+                      drivers: filtered,
+                      ride: ride,
+                      distanceKm: distanceKm,
+                    );
+                  },
+                ),
               Expanded(
                 child: StreamBuilder<List<TransporterOfferModel>>(
                   stream: rideService.streamOffersForRide(widget.rideId),
@@ -304,15 +554,127 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                     if (ride == null) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: offers.length,
-                      itemBuilder: (context, index) {
-                        final offer = offers[index];
-                        return _OfferCard(
-                          rideId: widget.rideId,
-                          offer: offer,
-                          ride: ride,
+                    final userService = UserService();
+                    return FutureBuilder<List<TransporterOfferModel>>(
+                      key: ValueKey(
+                        '${ride.transportType ?? ''}_${offers.map((o) => o.id).join(',')}',
+                      ),
+                      future: _filterAndSortOffersByTransportTypeAndCharge(
+                        ride,
+                        offers,
+                        userService,
+                      ),
+                      builder: (context, filterSnapshot) {
+                        if (!filterSnapshot.hasData) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24.0),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+                        final filteredOffers = filterSnapshot.data!;
+                        if (filteredOffers.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.filter_list,
+                                    size: 64,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No ${_vehicleTypeLabel(ride.transportType).toLowerCase()} transporters yet',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    ride.transportType != null &&
+                                            ride.transportType!.isNotEmpty
+                                        ? 'Only transporters matching your selected vehicle type are shown. Others may still offer.'
+                                        : 'Transporters will appear here as they offer.',
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Offers from transporters',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF1E40AF),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      if (ride.transportType != null &&
+                                          ride.transportType!.isNotEmpty) ...[
+                                        Icon(
+                                          Icons.category,
+                                          size: 16,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '${_vehicleTypeLabel(ride.transportType)} • ',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                      Text(
+                                        'Sorted by estimated price (distance × rate)',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: filteredOffers.length,
+                                itemBuilder: (context, index) {
+                                  final offer = filteredOffers[index];
+                                  return _OfferCard(
+                                    rideId: widget.rideId,
+                                    offer: offer,
+                                    ride: ride,
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         );
                       },
                     );
@@ -349,116 +711,196 @@ class _OfferCardState extends State<_OfferCard> {
   Widget build(BuildContext context) {
     final rideService = RideService();
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    // Ride doc is single source of truth for negotiated amount on both screens
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('rides')
+          .doc(widget.rideId)
+          .snapshots(),
+      builder: (context, rideSnapshot) {
+        final rideData = rideSnapshot.data?.data();
+        final rideCounterOffer =
+            (rideData?['counterOffer'] as num?)?.toDouble();
+        final rideLastBy = rideData?['lastCounterOfferBy'] as String?;
+        final ridePriceStatus = rideData?['priceStatus'] as String?;
+        final negotiatingTransporterId =
+            rideData?['negotiatingTransporterId'] as String?;
+
+        // Only this card is in active negotiation (works for any sender + multiple transporters)
+        final isNegotiatingCard = negotiatingTransporterId == null ||
+            negotiatingTransporterId == widget.offer.transporterId;
+
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.offer.transporterId)
+              .collection('rides')
+              .doc(widget.rideId)
+              .collection('offers')
+              .doc(widget.offer.id)
               .snapshots(),
-          builder: (context, userSnapshot) {
-            UserModel? transporter;
-            if (userSnapshot.data?.data() != null) {
-              transporter = UserModel.fromMap(userSnapshot.data!.data()!);
-            }
+          builder: (context, offerSnapshot) {
+            final offerData = offerSnapshot.data?.data();
+            final currentPriceOffer =
+                (offerData?['priceOffer'] as num?)?.toDouble() ??
+                    widget.offer.priceOffer;
+            final currentStatus =
+                (offerData?['status'] as String?) ?? widget.offer.status;
 
-            final status = widget.offer.status;
-            final isSelected = status == 'selected';
-            final isRejected = status == 'rejected';
+            // Show negotiated amount only on the card that is in negotiation
+            final displayAmount = isNegotiatingCard
+                ? (rideCounterOffer ?? currentPriceOffer)
+                : currentPriceOffer;
+            final displayLabel = isNegotiatingCard &&
+                    ridePriceStatus == 'pending' &&
+                    rideCounterOffer != null
+                ? (rideLastBy == 'transporter'
+                    ? 'Their offer'
+                    : 'Your counter')
+                : 'Their bid';
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(widget.offer.transporterId)
+                  .snapshots(),
+              builder: (context, userSnapshot) {
+                UserModel? transporter;
+                if (userSnapshot.data?.data() != null) {
+                  transporter = UserModel.fromMap(userSnapshot.data!.data()!);
+                }
+
+                final isSelected = currentStatus == 'selected';
+                final isRejected = currentStatus == 'rejected';
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      backgroundColor: const Color(0xFF2563EB).withOpacity(0.1),
-                      child: Icon(
-                        Icons.local_shipping,
-                        color: const Color(0xFF2563EB),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            transporter?.displayName ?? 'Transporter',
-                            style: GoogleFonts.inter(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF1E40AF),
-                            ),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: const Color(0xFF2563EB).withOpacity(0.1),
+                          child: const Icon(
+                            Icons.local_shipping,
+                            color: Color(0xFF2563EB),
                           ),
-                          if (transporter?.truckType != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              transporter!.truckType!,
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                          if (transporter?.rating != null) ...[
-                            const SizedBox(height: 2),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.star,
-                                  size: 14,
-                                  color: Colors.amber.shade700,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                transporter?.displayName ?? 'Transporter',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1E40AF),
                                 ),
-                                const SizedBox(width: 4),
+                              ),
+                              if (transporter?.truckType != null) ...[
+                                const SizedBox(height: 2),
                                 Text(
-                                  transporter!.rating!.toStringAsFixed(1),
+                                  transporter!.truckType!,
                                   style: GoogleFonts.inter(
                                     fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.amber.shade900,
+                                    color: Colors.grey.shade600,
                                   ),
                                 ),
                               ],
-                            ),
-                          ],
-                          if (transporter?.currentLat != null &&
-                              transporter?.currentLng != null &&
-                              widget.ride.pickupLat != null &&
-                              widget.ride.pickupLng != null)
-                            _DriverEtaChip(
-                              originLat: transporter!.currentLat!,
-                              originLng: transporter.currentLng!,
-                              destLat: widget.ride.pickupLat!,
-                              destLng: widget.ride.pickupLng!,
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (widget.offer.priceOffer != null)
+                              if (transporter?.rating != null) ...[
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.star,
+                                      size: 14,
+                                      color: Colors.amber.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      transporter!.rating!.toStringAsFixed(1),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.amber.shade900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if (transporter?.currentLat != null &&
+                                  transporter?.currentLng != null &&
+                                  widget.ride.pickupLat != null &&
+                                  widget.ride.pickupLng != null)
+                                _DriverEtaChip(
+                                  originLat: transporter!.currentLat!,
+                                  originLng: transporter.currentLng!,
+                                  destLat: widget.ride.pickupLat!,
+                                  destLng: widget.ride.pickupLng!,
+                                ),
+                              if (widget.ride.pickupLat != null &&
+                                  widget.ride.pickupLng != null &&
+                                  widget.ride.dropoffLat != null &&
+                                  widget.ride.dropoffLng != null &&
+                                  transporter?.ratePer10Km != null &&
+                                  transporter!.ratePer10Km! > 0) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.route,
+                                      size: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Default: \$${PricingService.calculateDriverPriceForDistance(
+                                        PricingService.calculateDistance(
+                                          widget.ride.pickupLat!,
+                                          widget.ride.pickupLng!,
+                                          widget.ride.dropoffLat!,
+                                          widget.ride.dropoffLng!,
+                                        ),
+                                        transporter.ratePer10Km,
+                                      )!.toStringAsFixed(2)} (distance × rate)',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                    if (displayAmount != null)
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'Their bid',
+                            displayLabel,
                             style: GoogleFonts.inter(
                               fontSize: 10,
                               color: Colors.grey.shade600,
                             ),
                           ),
                           Text(
-                            '\$${widget.offer.priceOffer!.toStringAsFixed(2)}',
+                            '\$${displayAmount!.toStringAsFixed(2)}',
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: const Color(0xFF2563EB),
+                              color: rideLastBy == 'sender'
+                                  ? Colors.green.shade700
+                                  : const Color(0xFF2563EB),
                             ),
                           ),
                         ],
@@ -503,24 +945,25 @@ class _OfferCardState extends State<_OfferCard> {
                         ),
                       )
                     else
-                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      isNegotiatingCard
+                          ? StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                         stream: FirebaseFirestore.instance
                             .collection('rides')
                             .doc(widget.rideId)
                             .snapshots(),
                         builder: (context, rideSnapshot) {
                           final rideData = rideSnapshot.data?.data();
-                          final priceStatus = rideData?['priceStatus'] as String?;
-                          final counterOffer = rideData?['counterOffer'] as num?;
-                          final originalPrice = rideData?['price'] as num?;
-                          
-                          // Check if this offer has a counter-offer or if sender needs to respond
-                          final hasCounterOffer = counterOffer != null && 
-                                                   priceStatus == 'pending' &&
-                                                   widget.offer.priceOffer == counterOffer.toDouble();
-                          final senderApproved = priceStatus == 'accepted' &&
-                                                widget.offer.priceOffer == (rideData?['price'] as num?)?.toDouble();
-                          
+                          final priceStatus =
+                              rideData?['priceStatus'] as String?;
+                          final counterOfferValue =
+                              (rideData?['counterOffer'] as num?)?.toDouble();
+                          final originalPriceValue =
+                              (rideData?['price'] as num?)?.toDouble();
+
+                          final hasCounterOffer =
+                              counterOfferValue != null && priceStatus == 'pending';
+                          final senderApproved = priceStatus == 'accepted';
+
                           return Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -547,16 +990,16 @@ class _OfferCardState extends State<_OfferCard> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '\$${counterOffer.toStringAsFixed(2)}',
+                                          '\$${counterOfferValue!.toStringAsFixed(2)}',
                                           style: GoogleFonts.inter(
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
                                             color: const Color(0xFF2563EB),
                                           ),
                                         ),
-                                        if (originalPrice != null)
+                                        if (originalPriceValue != null)
                                           Text(
-                                            'Your offer: \$${originalPrice.toStringAsFixed(2)}',
+                                            'Your offer: \$${originalPriceValue.toStringAsFixed(2)}',
                                             style: GoogleFonts.inter(
                                               fontSize: 11,
                                               color: Colors.grey.shade600,
@@ -703,8 +1146,8 @@ class _OfferCardState extends State<_OfferCard> {
                                                 context, 
                                                 widget.rideId, 
                                                 widget.offer.id,
-                                                counterOffer?.toDouble(),
-                                                originalPrice?.toDouble(),
+                                                counterOfferValue,
+                                                originalPriceValue,
                                               ),
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: const Color(0xFF2563EB),
@@ -736,24 +1179,18 @@ class _OfferCardState extends State<_OfferCard> {
                                                 });
                                                 try {
                                                   if (hasCounterOffer) {
-                                                    // Reject counter-offer
+                                                    // Reject counter-offer; ride reopens to other transporters
                                                     await rideService.respondToCounterOffer(
                                                       widget.rideId,
                                                       widget.offer.id,
                                                       false,
                                                     );
                                                   } else {
-                                                    // Reject offer
-                                                    await FirebaseFirestore.instance
-                                                        .collection('rides')
-                                                        .doc(widget.rideId)
-                                                        .collection('offers')
-                                                        .doc(widget.offer.id)
-                                                        .update({
-                                                      'status': 'rejected',
-                                                      'updatedAt': DateTime.now()
-                                                          .toIso8601String(),
-                                                    });
+                                                    // Reject offer and reopen ride so other transporters see it again
+                                                    await rideService.rejectOfferAndReopenRide(
+                                                      widget.rideId,
+                                                      widget.offer.id,
+                                                    );
                                                   }
 
                                                   if (!mounted) return;
@@ -807,7 +1244,19 @@ class _OfferCardState extends State<_OfferCard> {
                             ),
                           );
                         },
-                      ),
+                      )
+                      : Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              'Another transporter is currently negotiating.',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
                   ],
                 ),
               ],
@@ -815,6 +1264,10 @@ class _OfferCardState extends State<_OfferCard> {
           },
         ),
       ),
+    );
+          },
+        );
+      },
     );
   }
 

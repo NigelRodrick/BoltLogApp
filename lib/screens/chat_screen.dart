@@ -113,8 +113,71 @@ class _ChatScreenState extends State<ChatScreen> {
               : Stream.value(widget.ride),
           builder: (context, rideSnap) {
             final currentRide = rideSnap.data ?? widget.ride;
+            final amount = currentRide.finalPrice ??
+                currentRide.counterOffer ??
+                currentRide.price;
+            final isNegotiating = currentRide.priceStatus == 'pending' &&
+                (currentRide.counterOffer != null || currentRide.price != null);
+
             return Column(
               children: [
+                // Live amount bar so sender and transporter see negotiated amount quickly
+                if (amount != null && amount > 0)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isNegotiating
+                          ? const Color(0xFF2563EB).withOpacity(0.08)
+                          : Colors.green.shade50,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isNegotiating
+                              ? const Color(0xFF2563EB).withOpacity(0.2)
+                              : Colors.green.shade100,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isNegotiating ? Icons.handshake : Icons.check_circle,
+                          size: 20,
+                          color: isNegotiating
+                              ? const Color(0xFF2563EB)
+                              : Colors.green.shade700,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            currentRide.priceStatus == 'accepted'
+                                ? 'Agreed amount: \$${amount.toStringAsFixed(2)}'
+                                : (currentRide.counterOffer != null
+                                    ? 'Current offer: \$${amount.toStringAsFixed(2)}'
+                                    : 'Amount: \$${amount.toStringAsFixed(2)}'),
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: isNegotiating
+                                  ? const Color(0xFF1E40AF)
+                                  : Colors.green.shade800,
+                            ),
+                          ),
+                        ),
+                        if (isNegotiating &&
+                            currentRide.price != null &&
+                            currentRide.counterOffer != null &&
+                            currentRide.price != currentRide.counterOffer)
+                          Text(
+                            'Original: \$${currentRide.price!.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 // Messages list (persists offline; syncs when back online)
                 Expanded(
                   child: StreamBuilder<MessagesSnapshot>(

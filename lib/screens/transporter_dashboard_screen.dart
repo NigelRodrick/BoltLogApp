@@ -140,14 +140,18 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                   );
                 }
 
-                // Filter by driver's vehicle/transport type
-                List<RideModel> filteredRides = rides;
+                // Only show requests that match this transporter's vehicle type (when order has a type selected)
                 final driverTruckType = userModel?.truckType;
-                if (driverTruckType != null && driverTruckType.isNotEmpty) {
-                  filteredRides = rides
-                      .where((ride) => ride.transportType == null || ride.transportType == driverTruckType)
-                      .toList();
-                }
+                List<RideModel> filteredRides = rides
+                    .where((ride) {
+                      final orderType = ride.transportType;
+                      if (orderType == null || orderType.isEmpty)
+                        return true;
+                      return driverTruckType != null &&
+                          driverTruckType.isNotEmpty &&
+                          orderType == driverTruckType;
+                    })
+                    .toList();
                 // inDrive-style: only nearby requests, sorted by distance to pickup
                 filteredRides = filterAndSortRidesByDistance(
                   filteredRides,
