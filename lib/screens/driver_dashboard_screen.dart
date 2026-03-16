@@ -8,6 +8,7 @@ import '../models/ride_model.dart';
 import '../models/user_model.dart';
 import '../services/ride_service.dart';
 import '../services/user_service.dart';
+import '../config/testing_flags.dart';
 import 'transporter_dashboard_screen.dart';
 import 'active_deliveries_screen.dart';
 import '../widgets/active_deliveries_map.dart';
@@ -193,9 +194,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Profile incomplete notification
-                            if (userModel != null &&
-                                _driverProfileProgressValue(userModel) < 1.0)
+                        // Profile incomplete notification (hidden in testing mode)
+                        if (!TestingFlags.relaxTransporterVerification &&
+                            userModel != null &&
+                            _driverProfileProgressValue(userModel) < 1.0)
                               Container(
                                 width: double.infinity,
                                 margin: const EdgeInsets.only(bottom: 16),
@@ -229,7 +231,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                   ],
                                 ),
                               ),
-                            if (!isVerified)
+                            // Verification banner (hidden in testing mode)
+                            if (!TestingFlags.relaxTransporterVerification &&
+                                !isVerified)
                               Container(
                                 width: double.infinity,
                                 margin: const EdgeInsets.only(bottom: 16),
@@ -519,6 +523,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   /// Returns 0.0..1.0 for transporter profile completion (same 5 steps as profile screen).
   double _driverProfileProgressValue(UserModel? userModel) {
+    // In testing mode, treat profile as fully complete so percentage shows 100%.
+    if (TestingFlags.relaxTransporterVerification) return 1.0;
     if (userModel == null) return 0.0;
     const int totalSteps = 5;
     int completedSteps = 0;

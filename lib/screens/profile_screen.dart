@@ -13,6 +13,7 @@ import 'payment_methods_screen.dart';
 import 'support_screen.dart';
 import 'driver_account_edit_screen.dart';
 import '../widgets/storage_image.dart';
+import '../config/testing_flags.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -66,6 +67,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   /// Returns 0.0..1.0 for transporter profile completion (same 5 steps as dashboard).
   static double _driverProfileProgressValue(UserModel? userModel) {
+    // In testing mode, treat driver profile as fully complete.
+    if (TestingFlags.relaxTransporterVerification) return 1.0;
     if (userModel == null) return 0.0;
     const int totalSteps = 5;
     int completedSteps = 0;
@@ -168,7 +171,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleSwitchToDriver(UserModel user) async {
-    // Check if driver profile is complete
+    // In testing mode, skip profile completeness checks and go straight to completion/switch.
+    if (TestingFlags.relaxTransporterVerification) {
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => DriverCompletionScreen(currentUser: user),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Check if driver profile is complete (production rules)
     final hasTruckType = user.truckType != null && user.truckType!.isNotEmpty;
     final hasRatePer10Km = user.ratePer10Km != null && user.ratePer10Km! > 0;
     final hasCarBook = user.carBookImageUrl != null && user.carBookImageUrl!.isNotEmpty;
@@ -201,6 +216,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
 
     if (switchToDriver) {
+      // In testing mode, bypass all document requirements when switching to driver.
+      if (TestingFlags.relaxTransporterVerification) {
+        try {
+          await _userService.updateDriverProfile(
+            uid: user.uid,
+            role: 'Driver',
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Switched to Driver profile (testing mode, docs ignored)'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 2),
+              ),
+            );
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const TransporterNavigation()),
+              (route) => false,
+            );
+          }
+        } finally {
+          if (mounted) {
+            setState(() {
+              _isSwitching = false;
+            });
+          }
+        }
+        return;
+      }
+
       // Switching to Driver - MUST check if driver profile is complete
       final hasTruckType = user.truckType != null && user.truckType!.isNotEmpty;
       final hasRatePer10Km = user.ratePer10Km != null && user.ratePer10Km! > 0;
