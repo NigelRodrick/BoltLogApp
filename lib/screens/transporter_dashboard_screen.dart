@@ -10,6 +10,7 @@ import '../services/ride_service.dart';
 import '../services/user_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
+import '../config/testing_flags.dart';
 import '../utils/ride_distance_utils.dart';
 import 'active_ride_map_screen.dart';
 import 'request_detail_screen.dart';
@@ -119,7 +120,10 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
             final isDriver = (userModel?.role ?? '').toLowerCase() == 'driver';
             final verificationStatus = (userModel?.verificationStatus ?? 'pending').toLowerCase();
             final isVerified = verificationStatus == 'auto_verified' || verificationStatus == 'verified';
-            final showVerificationBanner = isDriver && !isVerified;
+            // In testing mode, hide the licence verification banner entirely.
+            final showVerificationBanner = !TestingFlags.relaxTransporterVerification &&
+                isDriver &&
+                !isVerified;
 
             return StreamBuilder<List<RideModel>>(
               stream: rideService.streamAvailableRides(),

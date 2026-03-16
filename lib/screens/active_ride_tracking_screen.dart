@@ -128,16 +128,26 @@ class ActiveRideTrackingScreen extends StatelessWidget {
     }
   }
 
-  String _getStatusMessage(String status, {bool isSender = false}) {
+  String _getStatusMessage(RideModel ride, {bool isSender = false}) {
+    final status = ride.status;
     switch (status) {
       case 'open':
         return isSender 
             ? 'Waiting for transporters to respond to your request...'
             : 'This request is open and available for acceptance';
       case 'pending':
-        return isSender
-            ? 'Price negotiation in progress. Waiting for transporter response...'
-            : 'This request is being negotiated with the sender';
+        if (!isSender) {
+          return 'This request is being negotiated with the sender';
+        }
+        // Sender view: tailor message based on who sent the last counter-offer
+        if (ride.lastCounterOfferBy == 'sender') {
+          return 'Price negotiation in progress. Waiting for transporter response...';
+        } else if (ride.lastCounterOfferBy == 'transporter' &&
+            ride.counterOffer != null) {
+          return 'Transporter proposed \$${ride.counterOffer!.toStringAsFixed(2)}. You can accept, reject, or send a counter-offer.';
+        } else {
+          return 'Price negotiation in progress with transporter.';
+        }
       case 'in_progress':
         return 'Driver is on the way to collect your parcel';
       case 'parcel_collected':
@@ -201,7 +211,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
           final isSender = user?.uid == currentRide.userId;
           final statusColor = _getStatusColor(status);
           final statusLabel = _getStatusLabel(status, isSender: isSender);
-          final statusMessage = _getStatusMessage(status, isSender: isSender);
+          final statusMessage = _getStatusMessage(currentRide, isSender: isSender);
           final statusIcon = _getStatusIcon(status);
 
           return SingleChildScrollView(
