@@ -597,72 +597,12 @@ class RideService {
           throw Exception('Ride has already been accepted by another transporter');
         }
         
-        // Lock-in: use finalPrice (agreed) else current counter-offer else rider's price
+        // Lock-in: use finalPrice (agreed) else current counter-offer else rider's price.
+        // NOTE (testing mode): fee calculation and wallet deductions are disabled for now.
         final price = (rideData['price'] as num?)?.toDouble() ?? 0.0;
         final counterOffer = (rideData['counterOffer'] as num?)?.toDouble();
-        final negotiatedFare = (rideData['finalPrice'] as num?)?.toDouble() ??
-            counterOffer ??
-            price;
-        final fee = negotiatedFare * PricingService.platformFeePercentage;
 
-        const allowedVerifiedStatuses = ['auto_verified', 'verified'];
-        const driverRole = 'driver';
-
-        final userSnap = await transaction.get(userRef);
-        final userData = userSnap.data() as Map<String, dynamic>? ?? {};
-
-        final userRole =
-            (userData['role'] as String? ?? '').toLowerCase();
-        final verificationStatus =
-            (userData['verificationStatus'] as String? ?? '').toLowerCase();
-
-        final relaxVerification = TestingFlags.relaxTransporterVerification;
-
-        if (!relaxVerification &&
-            userRole == driverRole &&
-            !allowedVerifiedStatuses.contains(verificationStatus)) {
-          throw Exception(
-              'Your documents are still being verified. You cannot accept this request yet.');
-        }
-
-        double currentBalance =
-            (userData['driverWalletBalance'] as num?)?.toDouble() ?? 0.0;
-
-        // Check if sender has approved the negotiated amount
-        final senderApproved = priceStatus == 'accepted';
-        final hasCounterOffer = rideData['counterOffer'] != null || 
-                                priceStatus == 'pending';
-
-        if (!hasCounterOffer) {
-          // Direct acceptance (no negotiation) - deduct immediately
-          if (currentBalance < fee) {
-            throw Exception('Insufficient balance. Required: \$${fee.toStringAsFixed(2)}, Available: \$${currentBalance.toStringAsFixed(2)}');
-          }
-
-          // Deduct fee for direct acceptance (non-refundable)
-          final newBalance = currentBalance - fee;
-          transaction.update(userRef, {
-            'driverWalletBalance': newBalance,
-          });
-        } else if (senderApproved) {
-          // Sender has approved the negotiated amount - deduct fee now
-          if (currentBalance < fee) {
-            throw Exception('Insufficient balance. Required: \$${fee.toStringAsFixed(2)}, Available: \$${currentBalance.toStringAsFixed(2)}');
-          }
-
-          // Deduct fee after sender approved (non-refundable)
-          final newBalance = currentBalance - fee;
-          transaction.update(userRef, {
-            'driverWalletBalance': newBalance,
-          });
-        } else {
-          // Negotiation still in progress - don't deduct yet, but check balance
-          if (currentBalance < fee) {
-            // Will notify after transaction
-          }
-        }
-
-        // Accept ride: move to in_progress; lock final fare if not set (use counterOffer when in negotiation)
+        // Accept ride: move to in_progress; lock final fare if not set (use counterOffer when in negotiation).
         final updatePayload = <String, dynamic>{
           'driverId': transporterId,
           'status': 'in_progress',
@@ -698,43 +638,7 @@ class RideService {
         debugPrint('Error sending transporter-selected chat message: $chatError');
       }
       
-      // After transaction, if there was negotiation and balance insufficient, notify
-      try {
-        final rideDoc = await _firestore.collection('rides').doc(rideId).get();
-        final rideData = rideDoc.data();
-        final hasCounterOffer = rideData?['counterOffer'] != null || 
-                                rideData?['priceStatus'] == 'pending';
-        
-        if (hasCounterOffer) {
-          final negotiatedFare = (rideData?['finalPrice'] as num?)?.toDouble() ??
-              (rideData?['counterOffer'] as num?)?.toDouble() ??
-              (rideData?['price'] as num?)?.toDouble() ?? 0.0;
-          final fee = negotiatedFare * PricingService.platformFeePercentage;
-          
-          final userDoc = await _firestore.collection('users').doc(transporterId).get();
-          final userData = userDoc.data();
-          double currentBalance = (userData?['driverWalletBalance'] as num?)?.toDouble() ?? 0.0;
-          
-          if (currentBalance < fee) {
-            final notificationService = NotificationService();
-            await notificationService.createNotification(
-              userId: transporterId,
-              type: 'insufficient_balance',
-              title: 'Insufficient Balance',
-              message: 'Your wallet balance (\$${currentBalance.toStringAsFixed(2)}) is insufficient. Please top up \$${fee.toStringAsFixed(2)} to complete this request.',
-              rideId: rideId,
-              data: {
-                'requiredAmount': fee,
-                'currentBalance': currentBalance,
-                'shortfall': fee - currentBalance,
-                'rideId': rideId,
-              },
-            );
-          }
-        }
-      } catch (notifError) {
-        debugPrint('Error sending notification: $notifError');
-      }
+      // NOTE (testing mode): post-acceptance insufficient balance notifications are disabled.
     } catch (e) {
       throw Exception('Error accepting ride: $e');
     }
