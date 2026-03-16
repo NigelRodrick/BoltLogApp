@@ -226,6 +226,7 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
   List<TransporterOfferModel>? _cachedOffers;
   bool _senderViewRecorded = false;
   bool _lockNavigation = false;
+  double _radiusKm = 25; // default radius for nearby transporters
 
   void _showNegotiationLockDialog() {
     showDialog(
@@ -456,15 +457,57 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                   );
                 },
               ),
-              // Sender sees transporters nearby (matching selected type) and their price rates
+              // Sender sees transporters nearby (matching selected type) and their price rates,
+              // with adjustable radius slider.
               if (_cachedRide != null &&
                   _cachedRide!.pickupLat != null &&
-                  _cachedRide!.pickupLng != null)
+                  _cachedRide!.pickupLng != null) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Search radius',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        '${_radiusKm.toStringAsFixed(0)} km',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E40AF),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Slider(
+                    value: _radiusKm,
+                    min: 5,
+                    max: 50,
+                    divisions: 9, // 5,10,...,50
+                    label: '${_radiusKm.toStringAsFixed(0)} km',
+                    activeColor: const Color(0xFF2563EB),
+                    inactiveColor: Colors.grey.shade300,
+                    onChanged: (value) {
+                      setState(() {
+                        _radiusKm = value;
+                      });
+                    },
+                  ),
+                ),
                 StreamBuilder<List<UserModel>>(
                   stream: UserService().getNearbyDrivers(
                     latitude: _cachedRide!.pickupLat!,
                     longitude: _cachedRide!.pickupLng!,
-                    radiusKm: 25,
+                    radiusKm: _radiusKm,
                   ),
                   builder: (context, driverSnapshot) {
                     final allDrivers = driverSnapshot.data ?? [];
@@ -504,6 +547,7 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                     );
                   },
                 ),
+              ],
               Expanded(
                 child: StreamBuilder<List<TransporterOfferModel>>(
                   stream: rideService.streamOffersForRide(widget.rideId),
