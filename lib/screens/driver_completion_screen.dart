@@ -27,6 +27,8 @@ class _DriverCompletionScreenState extends State<DriverCompletionScreen> {
   final UserService _userService = UserService();
   final ImagePicker _imagePicker = ImagePicker();
   final TextEditingController _ratePer10KmController = TextEditingController();
+  // Testing flag: when true, skip all image capture/upload and let drivers complete profile without documents.
+  static const bool _disableImageUploadForTesting = true;
   
   String? _selectedTruckType;
   File? _carBookImage;
@@ -502,6 +504,55 @@ class _DriverCompletionScreenState extends State<DriverCompletionScreen> {
           backgroundColor: Colors.red,
         ),
       );
+      return;
+    }
+
+    // When testing, skip all document/image requirements and uploads.
+    if (_disableImageUploadForTesting) {
+      setState(() {
+        _isLoading = true;
+      });
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) {
+          throw Exception('User not logged in');
+        }
+        await _userService.updateDriverProfile(
+          uid: user.uid,
+          role: 'Driver',
+          truckType: _selectedTruckType,
+          ratePer10Km: ratePer10Km,
+          isAvailable: true,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Driver profile completed (testing mode: documents skipped)'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const TransporterNavigation()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
       return;
     }
 
