@@ -1123,27 +1123,7 @@ class RideService {
           if (transporterId == null) {
             throw Exception('Transporter ID not found in offer');
           }
-          
-          // Check balance before accepting (deduction happens after negotiation)
-          final rideSnap = await transaction.get(rideRef);
-          final rideData = rideSnap.data() as Map<String, dynamic>;
-          final agreed = counterOffer ?? (rideData['price'] as num?)?.toDouble() ?? 0.0;
-          final fee = agreed * PricingService.platformFeePercentage;
-          
-          // Check balance
-          final userRef = _firestore.collection('users').doc(transporterId);
-          final userSnap = await transaction.get(userRef);
-          final userData = userSnap.data() as Map<String, dynamic>? ?? {};
-          double currentBalance = (userData['driverWalletBalance'] as num?)?.toDouble() ?? 0.0;
-          
-          if (currentBalance < fee) {
-            // Notify transporter about insufficient balance
-            // We'll send notification after transaction, but throw error to prevent acceptance
-            final notificationService = NotificationService();
-            // Note: Notification will be sent after transaction fails
-            throw Exception('Insufficient balance. Required: \$${fee.toStringAsFixed(2)}, Available: \$${currentBalance.toStringAsFixed(2)}');
-          }
-          
+
           // Update ride with accepted counter-offer
           // When sender accepts, set priceStatus to 'accepted' but keep status as 'pending'
           final updateData = <String, dynamic>{

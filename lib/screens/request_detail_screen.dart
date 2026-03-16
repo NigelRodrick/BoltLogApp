@@ -962,8 +962,13 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ),
                 ),
               ],
-              // Chat with counterparty (after negotiation started or ride accepted)
-              if ((ride.driverId != null || ride.acceptedTransporterId != null)) ...[
+              // Chat with counterparty:
+              // - when a driver/acceptedTransporter is set, OR
+              // - when there is an active negotiation (negotiatingTransporterId set while pending)
+              if (ride.driverId != null ||
+                  ride.acceptedTransporterId != null ||
+                  (ride.status == 'pending' &&
+                      ride.negotiatingTransporterId != null)) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
