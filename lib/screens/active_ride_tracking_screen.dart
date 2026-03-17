@@ -292,7 +292,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _buildProgressTimeline(currentRide, isSender),
+                _buildProgressTimeline(context, currentRide, isSender),
                 const SizedBox(height: 20),
                 // Map: pickup, dropoff, delivery route (persists with streamed currentRide)
                 if (isDeliveryPhase) ...[
@@ -720,7 +720,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProgressTimeline(RideModel ride, bool isSender) {
+  Widget _buildProgressTimeline(BuildContext context, RideModel ride, bool isSender) {
     final currentStatus = ride.status;
     final steps = [
       {'status': 'pending', 'label': 'Request Sent', 'icon': Icons.send},
@@ -949,7 +949,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                             leading: const Icon(Icons.local_shipping,
                                 size: 18, color: Color(0xFF2563EB)),
                             title: Text(
-                              'Offer: \$${o.priceOffer.toStringAsFixed(2)}',
+                              'Offer: \$${(o.priceOffer ?? 0).toStringAsFixed(2)}',
                               style: GoogleFonts.inter(fontSize: 13),
                             ),
                             subtitle: Text(
