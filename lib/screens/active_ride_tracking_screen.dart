@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
 import '../models/ride_model.dart';
+import '../models/transporter_offer_model.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
@@ -209,6 +210,10 @@ class ActiveRideTrackingScreen extends StatelessWidget {
           final currentRide = snapshot.data ?? ride;
           final status = currentRide.status;
           final isSender = user?.uid == currentRide.userId;
+          final isDeliveryPhase = currentRide.driverId != null &&
+              status != 'cancelled' &&
+              status != 'open' &&
+              status != 'pending';
           final statusColor = _getStatusColor(status);
           final statusLabel = _getStatusLabel(status, isSender: isSender);
           final statusMessage = _getStatusMessage(currentRide, isSender: isSender);
@@ -277,17 +282,23 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
+                // Progress Timeline (timeline-first layout)
+                Text(
+                  'Progress',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1E40AF),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildProgressTimeline(currentRide, isSender),
+                const SizedBox(height: 20),
                 // Map: pickup, dropoff, delivery route (persists with streamed currentRide)
-                if (currentRide.driverId != null &&
-                    currentRide.status != 'cancelled' &&
-                    currentRide.status != 'open' &&
-                    currentRide.status != 'pending')
+                if (isDeliveryPhase) ...[
                   _SenderTrackingMap(ride: currentRide, status: status),
-                if (currentRide.driverId != null &&
-                    currentRide.status != 'cancelled' &&
-                    currentRide.status != 'open' &&
-                    currentRide.status != 'pending')
                   const SizedBox(height: 20),
+                ],
                 // Package Details
                 if (currentRide.packageDescription != null) ...[
                   Text(
@@ -362,119 +373,122 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   const SizedBox(height: 20),
                 ],
                 // Locations
-                Text(
-                  'Locations',
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1E40AF),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Pickup Location
-                Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.location_on,
-                            color: Color(0xFF2563EB),
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Pickup',
-                                style: GoogleFonts.inter(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                currentRide.pickupLocation,
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF1E40AF),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                if (!isDeliveryPhase) ...[
+                  Text(
+                    'Locations',
+                    style: GoogleFonts.inter(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF1E40AF),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Dropoff Location
-                Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade400.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
+                  const SizedBox(height: 12),
+                  // Pickup Location
+                  Card(
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2563EB).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.location_on,
+                              color: Color(0xFF2563EB),
+                              size: 24,
+                            ),
                           ),
-                          child: Icon(
-                            Icons.location_on,
-                            color: Colors.red.shade400,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Delivery',
-                                style: GoogleFonts.inter(
-                                  fontSize: 10,
-                                  color: Colors.grey.shade600,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Pickup',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                currentRide.dropoffLocation,
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF1E40AF),
+                                const SizedBox(height: 4),
+                                Text(
+                                  currentRide.pickupLocation,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF1E40AF),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                // Price (or negotiated amount)
-                if (currentRide.price != null || currentRide.finalPrice != null) ...[
+                  const SizedBox(height: 12),
+                  // Dropoff Location
+                  Card(
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade400.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.location_on,
+                              color: Colors.red.shade400,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Delivery',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  currentRide.dropoffLocation,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF1E40AF),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                // Agreed amount (only after negotiation finished / accepted)
+                if (currentRide.finalPrice != null ||
+                    currentRide.priceStatus == 'accepted') ...[
                   Card(
                     elevation: 1,
                     shape: RoundedRectangleBorder(
@@ -505,6 +519,40 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  // Proceed button for sender to focus on live tracking/map
+                  if (isSender && isDeliveryPhase)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _FullScreenSenderMap(
+                                ride: currentRide,
+                                status: status,
+                              ),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          'Proceed',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   // Trip summary when completed (final fare + platform fee)
                   if (currentRide.status == 'completed') ...[
@@ -544,17 +592,6 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   ],
                   const SizedBox(height: 20),
                 ],
-                // Progress Timeline
-                Text(
-                  'Progress',
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1E40AF),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildProgressTimeline(currentRide.status),
                 // Cancel request (inDrive-style: free vs late cancel)
                 if (currentRide.status != 'cancelled' &&
                     currentRide.status != 'completed' &&
@@ -683,7 +720,8 @@ class ActiveRideTrackingScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProgressTimeline(String currentStatus) {
+  Widget _buildProgressTimeline(RideModel ride, bool isSender) {
+    final currentStatus = ride.status;
     final steps = [
       {'status': 'pending', 'label': 'Request Sent', 'icon': Icons.send},
       {'status': 'accepted', 'label': 'Driver Accepted', 'icon': Icons.check_circle},
@@ -708,8 +746,9 @@ class ActiveRideTrackingScreen extends StatelessWidget {
             final step = entry.value;
             final isCompleted = index <= currentIndex;
             final isCurrent = index == currentIndex;
+            final isNegotiationStep = step['status'] == 'pending';
 
-            return Row(
+            Widget row = Row(
               children: [
                 // Icon
                 Container(
@@ -746,13 +785,27 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                 ),
                 // Check mark for completed
                 if (index < currentIndex)
-                  Icon(
+                  const Icon(
                     Icons.check_circle,
                     size: 20,
                     color: Colors.green,
                   ),
               ],
             );
+
+            // When sender is viewing and we are in negotiation, make the step clickable
+            if (isSender && isNegotiationStep) {
+              row = InkWell(
+                onTap: () => _showNegotiationHistory(context, ride),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: row,
+                ),
+              );
+            }
+
+            return row;
           }).toList(),
         ),
       ),
@@ -779,6 +832,144 @@ class ActiveRideTrackingScreen extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  void _showNegotiationHistory(BuildContext context, RideModel ride) {
+    if (ride.id == null) return;
+    final rideService = RideService();
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Negotiation history',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1E40AF),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: Text(
+                        'Close',
+                        style: GoogleFonts.inter(
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'From your initial amount to the latest counter-offer.',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Initial sender amount
+                if (ride.price != null)
+                  ListTile(
+                    leading: const Icon(Icons.person, color: Color(0xFF2563EB)),
+                    title: Text(
+                      'Sender\'s initial amount',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                    ),
+                    trailing: Text(
+                      '\$${ride.price!.toStringAsFixed(2)}',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2563EB),
+                      ),
+                    ),
+                  ),
+                // Latest negotiated value from ride doc
+                if (ride.counterOffer != null)
+                  ListTile(
+                    leading: const Icon(Icons.local_shipping, color: Colors.amber),
+                    title: Text(
+                      ride.lastCounterOfferBy == 'transporter'
+                          ? 'Transporter counter-offer'
+                          : 'Your counter-offer',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                    ),
+                    trailing: Text(
+                      '\$${ride.counterOffer!.toStringAsFixed(2)}',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: ride.lastCounterOfferBy == 'transporter'
+                            ? Colors.amber.shade800
+                            : Colors.green.shade700,
+                      ),
+                    ),
+                  ),
+                // Stream of offers for more detailed history
+                StreamBuilder<List<TransporterOfferModel>>(
+                  stream: rideService.streamOffersForRide(ride.id!),
+                  builder: (ctx, snapshot) {
+                    final offers = snapshot.data ?? [];
+                    if (offers.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Divider(),
+                        Text(
+                          'Offers from transporters',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...offers.map((o) {
+                          return ListTile(
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 0),
+                            leading: const Icon(Icons.local_shipping,
+                                size: 18, color: Color(0xFF2563EB)),
+                            title: Text(
+                              'Offer: \$${o.priceOffer.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(fontSize: 13),
+                            ),
+                            subtitle: Text(
+                              'Status: ${o.status}',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -993,6 +1184,40 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
                       ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Full-screen map view for sender after proceeding from agreed amount.
+class _FullScreenSenderMap extends StatelessWidget {
+  final RideModel ride;
+  final String status;
+
+  const _FullScreenSenderMap({required this.ride, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Color(0xFF1E40AF)),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(
+          'Driver route',
+          style: GoogleFonts.inter(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF1E40AF),
+          ),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: _SenderTrackingMap(ride: ride, status: status),
       ),
     );
   }
