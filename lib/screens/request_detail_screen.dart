@@ -1107,12 +1107,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 ),
               ],
 
-              // Sender "Proceed" button once delivery phase has started (driver assigned, not pending/open/cancelled)
+              // Sender "Proceed" button right after accepting the counter-offer.
+              // At this point `driverId` may still be null because transporter must still accept.
               if (isSender &&
-                  ride.driverId != null &&
                   ride.status != 'cancelled' &&
-                  ride.status != 'open' &&
-                  ride.status != 'pending' &&
                   (ride.finalPrice != null ||
                       ride.priceStatus == 'accepted')) ...[
                 const SizedBox(height: 12),
