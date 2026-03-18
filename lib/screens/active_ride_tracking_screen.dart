@@ -8,6 +8,7 @@ import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
 import '../utils/chat_utils.dart';
+import 'request_detail_screen.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
 
@@ -792,10 +793,17 @@ class ActiveRideTrackingScreen extends StatelessWidget {
               ],
             );
 
-            // When sender is viewing and we are in negotiation, make the step clickable
-            if (isSender && isNegotiationStep) {
+            // Only when the ride is actually in negotiation (status == 'pending') and
+            // the sender is viewing, make the "Negotiating" step tappable to open details.
+            if (isSender && isNegotiationStep && ride.status == 'pending') {
               row = InkWell(
-                onTap: () => _showNegotiationHistory(context, ride),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RequestDetailScreen(ride: ride),
+                    ),
+                  );
+                },
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
