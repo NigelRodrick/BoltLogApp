@@ -369,38 +369,10 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
 
     for (int i = 0; i < rides.length; i++) {
       final ride = rides[i];
-      
-      // Get coordinates for pickup
-      double? pickupLat = ride.pickupLat;
-      double? pickupLng = ride.pickupLng;
-      
-      if (pickupLat == null || pickupLng == null) {
-        try {
-          final pickupLocations = await locationFromAddress(ride.pickupLocation);
-          if (pickupLocations.isNotEmpty) {
-            pickupLat = pickupLocations.first.latitude;
-            pickupLng = pickupLocations.first.longitude;
-          }
-        } catch (e) {
-          continue; // Skip this ride if geocoding fails
-        }
-      }
-
-      // Get coordinates for dropoff
-      double? dropoffLat = ride.dropoffLat;
-      double? dropoffLng = ride.dropoffLng;
-      
-      if (dropoffLat == null || dropoffLng == null) {
-        try {
-          final dropoffLocations = await locationFromAddress(ride.dropoffLocation);
-          if (dropoffLocations.isNotEmpty) {
-            dropoffLat = dropoffLocations.first.latitude;
-            dropoffLng = dropoffLocations.first.longitude;
-          }
-        } catch (e) {
-          continue; // Skip this ride if geocoding fails
-        }
-      }
+      final pickupLat = ride.pickupLat;
+      final pickupLng = ride.pickupLng;
+      final dropoffLat = ride.dropoffLat;
+      final dropoffLng = ride.dropoffLng;
 
       if (pickupLat != null && pickupLng != null && dropoffLat != null && dropoffLng != null) {
         // Add pickup marker (blue)

@@ -1002,38 +1002,18 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
   }
 
   Future<void> _loadCoordsAndRoute() async {
-    double? pickupLat = widget.ride.pickupLat;
-    double? pickupLng = widget.ride.pickupLng;
-    double? dropoffLat = widget.ride.dropoffLat;
-    double? dropoffLng = widget.ride.dropoffLng;
-
-    if (pickupLat == null || pickupLng == null) {
-      try {
-        final locs = await locationFromAddress(widget.ride.pickupLocation);
-        if (locs.isNotEmpty) {
-          pickupLat = locs.first.latitude;
-          pickupLng = locs.first.longitude;
-        }
-      } catch (e) {
-        if (mounted) setState(() { _error = 'Pickup address could not be found.'; _loading = false; });
-        return;
-      }
-    }
-    if (dropoffLat == null || dropoffLng == null) {
-      try {
-        final locs = await locationFromAddress(widget.ride.dropoffLocation);
-        if (locs.isNotEmpty) {
-          dropoffLat = locs.first.latitude;
-          dropoffLng = locs.first.longitude;
-        }
-      } catch (e) {
-        if (mounted) setState(() { _error = 'Delivery address could not be found.'; _loading = false; });
-        return;
-      }
-    }
+    final pickupLat = widget.ride.pickupLat;
+    final pickupLng = widget.ride.pickupLng;
+    final dropoffLat = widget.ride.dropoffLat;
+    final dropoffLng = widget.ride.dropoffLng;
 
     if (pickupLat == null || pickupLng == null || dropoffLat == null || dropoffLng == null) {
-      if (mounted) setState(() { _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = 'Pickup or delivery coordinates are missing.';
+          _loading = false;
+        });
+      }
       return;
     }
 
