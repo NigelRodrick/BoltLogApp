@@ -411,6 +411,24 @@ class RideService {
         });
   }
 
+  /// Transporter-specific negotiations that should remain visible even after logout.
+  /// These are rides where the transporter is the active negotiatingTransporterId and
+  /// the ride is still in the "pending negotiation" state.
+  Stream<List<RideModel>> streamTransporterNegotiations(String transporterId) {
+    return _firestore
+        .collection('rides')
+        .where('status', isEqualTo: 'pending')
+        .where('priceStatus', isEqualTo: 'pending')
+        .where('negotiatingTransporterId', isEqualTo: transporterId)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map((doc) =>
+                  RideModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .toList();
+        });
+  }
+
   // Get transporter's active deliveries
   Stream<List<RideModel>> streamTransporterDeliveries(String transporterId) {
     return _firestore

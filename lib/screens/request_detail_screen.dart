@@ -1111,7 +1111,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
               // At this point `driverId` may still be null because transporter must still accept.
               if (isSender &&
                   ride.status != 'cancelled' &&
-                  (ride.finalPrice != null ||
+                  // `acceptedTransporterId` is the most reliable indicator that the sender
+                  // accepted the transporter's counter-offer (even if finalPrice/priceStatus
+                  // are temporarily null/not updated due to timing or data shape).
+                  (ride.acceptedTransporterId != null ||
+                      ride.finalPrice != null ||
                       ride.priceStatus == 'accepted')) ...[
                 const SizedBox(height: 12),
                 SizedBox(

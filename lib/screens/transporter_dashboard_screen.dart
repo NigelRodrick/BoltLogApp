@@ -126,22 +126,46 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
 
             return StreamBuilder<List<RideModel>>(
               stream: rideService.streamAvailableRides(),
-              builder: (context, snapshot) {
-                if (snapshot.data != null) _cachedRides = snapshot.data;
-                final rides = snapshot.data ?? _cachedRides ?? [];
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    rides.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+              builder: (context, openSnapshot) {
+                if (openSnapshot.data != null) _cachedRides = openSnapshot.data;
+                final openRides = openSnapshot.data ?? _cachedRides ?? [];
 
-                if (snapshot.hasError && rides.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'Error: ${snapshot.error}',
-                      style: GoogleFonts.inter(color: Colors.red),
-                    ),
-                  );
-                }
+                return StreamBuilder<List<RideModel>>(
+                  stream: rideService.streamTransporterNegotiations(user?.uid ?? ''),
+                  builder: (context, negSnapshot) {
+                    final negRides = negSnapshot.data ?? [];
+
+                    final rides = <RideModel>[];
+                    final byId = <String, RideModel>{};
+                    for (final r in openRides) {
+                      final id = r.id;
+                      if (id == null) continue;
+                      byId[id] = r;
+                    }
+                    for (final r in negRides) {
+                      final id = r.id;
+                      if (id == null) continue;
+                      byId[id] = r;
+                    }
+                    rides.addAll(byId.values);
+
+                    if (openSnapshot.connectionState == ConnectionState.waiting &&
+                        openRides.isEmpty &&
+                        negSnapshot.connectionState == ConnectionState.waiting &&
+                        negRides.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if ((openSnapshot.hasError && openRides.isEmpty) &&
+                        negRides.isEmpty) {
+                      final errorMsg = openSnapshot.error?.toString() ?? 'Unknown error';
+                      return Center(
+                        child: Text(
+                          'Error: $errorMsg',
+                          style: GoogleFonts.inter(color: Colors.red),
+                        ),
+                      );
+                    }
 
                 // Only show requests that match this transporter's vehicle type (when order has a type selected)
                 final driverTruckType = userModel?.truckType;
@@ -270,6 +294,8 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                       ),
                     ),
                   ],
+                );
+                  },
                 );
               },
             );
