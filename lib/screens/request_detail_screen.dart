@@ -15,6 +15,7 @@ import '../utils/negotiation_utils.dart';
 import '../utils/chat_utils.dart';
 import '../models/transporter_offer_model.dart';
 import 'active_ride_map_screen.dart';
+import 'active_ride_tracking_screen.dart';
 import 'chat_screen.dart';
 
 class RequestDetailScreen extends StatefulWidget {
@@ -1101,6 +1102,45 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+
+              // Sender "Proceed" button once delivery phase has started (driver assigned, not pending/open/cancelled)
+              if (isSender &&
+                  ride.driverId != null &&
+                  ride.status != 'cancelled' &&
+                  ride.status != 'open' &&
+                  ride.status != 'pending' &&
+                  (ride.finalPrice != null ||
+                      ride.priceStatus == 'accepted')) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ActiveRideTrackingScreen(ride: ride),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'Proceed',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),

@@ -976,11 +976,20 @@ class _TransporterDashboardScreenState extends State<TransporterDashboardScreen>
                     value,
                   );
                   if (context.mounted) {
-                    Navigator.of(context).pop();
+                    Navigator.of(context).pop(); // close dialog only
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Counter offer sent successfully!'),
                         backgroundColor: Colors.green,
+                      ),
+                    );
+                    // After sending a counter-offer, open full request details so
+                    // transporter can see the negotiation state and history instead
+                    // of the card "disappearing" from the dashboard list.
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (ctx) => RequestDetailScreen(ride: ride),
                       ),
                     );
                   }
