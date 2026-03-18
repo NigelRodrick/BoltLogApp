@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -119,27 +118,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       _selectedLng = target.longitude;
     });
 
-    try {
-      final placemarks = await placemarkFromCoordinates(
-        target.latitude,
-        target.longitude,
-      );
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final address =
-            '${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}';
-        setState(() {
-          _selectedAddress = address;
-          _searchController.text = address;
-        });
-      }
-    } catch (_) {
-      setState(() {
-        _selectedAddress =
-            '${target.latitude.toStringAsFixed(6)}, ${target.longitude.toStringAsFixed(6)}';
-        _searchController.text = _selectedAddress!;
-      });
-    }
+    // Use plain coordinates as fallback address without reverse geocoding
+    setState(() {
+      _selectedAddress =
+          '${target.latitude.toStringAsFixed(6)}, ${target.longitude.toStringAsFixed(6)}';
+      _searchController.text = _selectedAddress!;
+    });
   }
 
   void _onMapCreated(GoogleMapController controller) {
@@ -204,30 +188,21 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         ),
       );
 
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
+      setState(() {
+        _selectedLat = position.latitude;
+        _selectedLng = position.longitude;
+        _cameraTarget = LatLng(position.latitude, position.longitude);
+        _selectedAddress =
+            '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+        _searchController.text = _selectedAddress!;
+      });
+
+      // Move map to selected location
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLng(
+          LatLng(position.latitude, position.longitude),
+        ),
       );
-
-      if (placemarks.isNotEmpty) {
-        final place = placemarks[0];
-        final address = '${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}';
-        
-        setState(() {
-          _selectedAddress = address;
-          _selectedLat = position.latitude;
-          _selectedLng = position.longitude;
-          _cameraTarget = LatLng(position.latitude, position.longitude);
-          _searchController.text = address;
-        });
-
-        // Move map to selected location
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLng(
-            LatLng(position.latitude, position.longitude),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -254,40 +229,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     });
 
     try {
-      List<Location> locations = await locationFromAddress(_searchController.text.trim());
-      if (locations.isNotEmpty) {
-        final location = locations.first;
-        List<Placemark> placemarks = await placemarkFromCoordinates(
-          location.latitude,
-          location.longitude,
-        );
-
-        if (placemarks.isNotEmpty) {
-          final place = placemarks[0];
-          final address = '${place.street ?? ''}, ${place.locality ?? ''}, ${place.administrativeArea ?? ''}';
-          
-          setState(() {
-          _selectedAddress = address;
-          _selectedLat = location.latitude;
-          _selectedLng = location.longitude;
-          _cameraTarget = LatLng(location.latitude, location.longitude);
-            _searchController.text = address;
-          });
-
-          // Move map to selected location
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLng(
-              LatLng(location.latitude, location.longitude),
-            ),
-          );
-        }
-      }
-    } catch (e) {
+      // Simple fallback: do not geocode text; rely on map movement instead
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Location not found: ${e.toString()}'),
-            backgroundColor: Colors.red,
+          const SnackBar(
+            content: Text('Search by dragging the map to your location.'),
+            backgroundColor: Colors.orange,
           ),
         );
       }

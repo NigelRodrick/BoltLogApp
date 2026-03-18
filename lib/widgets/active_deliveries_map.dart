@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geocoding/geocoding.dart';
 import '../models/ride_model.dart';
 import '../services/routing_service.dart';
 
@@ -88,33 +87,10 @@ class _ActiveDeliveriesMapWidgetState extends State<ActiveDeliveriesMapWidget> {
     for (int i = 0; i < deliveries.length; i++) {
       final ride = deliveries[i];
 
-      double? pickupLat = ride.pickupLat;
-      double? pickupLng = ride.pickupLng;
-      if (pickupLat == null || pickupLng == null) {
-        try {
-          final locs = await locationFromAddress(ride.pickupLocation);
-          if (locs.isNotEmpty) {
-            pickupLat = locs.first.latitude;
-            pickupLng = locs.first.longitude;
-          }
-        } catch (_) {
-          continue;
-        }
-      }
-
-      double? dropoffLat = ride.dropoffLat;
-      double? dropoffLng = ride.dropoffLng;
-      if (dropoffLat == null || dropoffLng == null) {
-        try {
-          final locs = await locationFromAddress(ride.dropoffLocation);
-          if (locs.isNotEmpty) {
-            dropoffLat = locs.first.latitude;
-            dropoffLng = locs.first.longitude;
-          }
-        } catch (_) {
-          continue;
-        }
-      }
+      final pickupLat = ride.pickupLat;
+      final pickupLng = ride.pickupLng;
+      final dropoffLat = ride.dropoffLat;
+      final dropoffLng = ride.dropoffLng;
 
       if (pickupLat == null || pickupLng == null || dropoffLat == null || dropoffLng == null) continue;
 

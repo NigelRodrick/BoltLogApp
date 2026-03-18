@@ -13,6 +13,7 @@ import '../services/pricing_service.dart';
 import '../config/testing_flags.dart';
 import '../utils/negotiation_utils.dart';
 import '../utils/chat_utils.dart';
+import '../models/transporter_offer_model.dart';
 import 'active_ride_map_screen.dart';
 import 'chat_screen.dart';
 
@@ -293,45 +294,51 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                             ride.priceStatus == 'pending' &&
                             ride.lastCounterOfferBy == 'transporter' &&
                             ride.counterOffer != null) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.amber.shade200),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.attach_money,
-                                    color: Colors.amber.shade800, size: 20),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: RichText(
-                                    text: TextSpan(
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.amber.shade900,
+                          InkWell(
+                            onTap: () => _showSenderOfferActions(context, ride),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.amber.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.attach_money,
+                                      color: Colors.amber.shade800, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: RichText(
+                                      text: TextSpan(
+                                        style: GoogleFonts.inter(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.amber.shade900,
+                                        ),
+                                        children: [
+                                          const TextSpan(
+                                            text: 'Transporter proposed: ',
+                                          ),
+                                          TextSpan(
+                                            text:
+                                                '\$${ride.counterOffer!.toStringAsFixed(2)}. ',
+                                          ),
+                                          const TextSpan(
+                                            text:
+                                                'Tap to accept, decline, or counter.',
+                                          ),
+                                        ],
                                       ),
-                                      children: [
-                                        const TextSpan(
-                                          text: 'Transporter proposed: ',
-                                        ),
-                                        TextSpan(
-                                          text:
-                                              '\$${ride.counterOffer!.toStringAsFixed(2)}. ',
-                                        ),
-                                        const TextSpan(
-                                          text:
-                                              'You can accept, reject, or send a counter-offer.',
-                                        ),
-                                      ],
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.chevron_right, size: 22, color: Colors.orange),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -1229,6 +1236,256 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   double _deg2rad(double deg) {
     return deg * (math.pi / 180);
+  }
+
+  Future<void> _showSenderOfferActions(
+      BuildContext context, RideModel ride) async {
+    if (ride.id == null) return;
+
+    try {
+      // Find the active offer for the negotiating transporter so we know offerId
+      final offers =
+          await _rideService.streamOffersForRide(ride.id!).first;
+      final activeOffer = offers.firstWhere(
+        (o) =>
+            o.transporterId == ride.negotiatingTransporterId &&
+            o.status == 'pending',
+        orElse: () => offers.firstWhere(
+          (o) => o.transporterId == ride.negotiatingTransporterId,
+          orElse: () => offers.first,
+        ),
+      );
+
+      final TextEditingController counterController = TextEditingController(
+        text: ride.counterOffer?.toStringAsFixed(2) ??
+            ride.price?.toStringAsFixed(2) ??
+            '',
+      );
+
+      await showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Transporter offer',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E40AF),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Current offer: \$${ride.counterOffer?.toStringAsFixed(2) ?? '-'}',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Counter-offer (optional)',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1E40AF),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: counterController,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      prefixText: '\$',
+                      hintText: 'Leave empty to just accept or decline',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            // Decline: no new amount
+                            Navigator.of(ctx).pop();
+                            try {
+                              await _rideService.respondToCounterOffer(
+                                ride.id!,
+                                activeOffer.id!,
+                                false,
+                              );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Offer declined'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Error: ${e.toString()}'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                            side: BorderSide(color: Colors.red.shade300),
+                          ),
+                          child: Text(
+                            'Decline',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            // Accept at current counterOffer
+                            Navigator.of(ctx).pop();
+                            try {
+                              await _rideService.respondToCounterOffer(
+                                ride.id!,
+                                activeOffer.id!,
+                                true,
+                              );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        'Offer accepted. Waiting for transporter to accept delivery.'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Error: ${e.toString()}'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: Text(
+                            'Accept',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            final text = counterController.text.trim();
+                            final value = double.tryParse(text);
+                            if (value == null ||
+                                value < PricingService.minimumFloorPrice) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Minimum \$${PricingService.minimumFloorPrice.toStringAsFixed(2)}.',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                              return;
+                            }
+                            Navigator.of(ctx).pop();
+                            try {
+                              await _rideService.respondToCounterOffer(
+                                ride.id!,
+                                activeOffer.id!,
+                                false,
+                                senderCounterOffer: value,
+                              );
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                        'Counter-offer \$${value.toStringAsFixed(2)} sent.'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Error: ${e.toString()}'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Text(
+                            'Counter',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading offer: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   // Build route polylines using actual road route

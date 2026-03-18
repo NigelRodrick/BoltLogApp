@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geocoding/geocoding.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/ride_model.dart';
 import '../models/payment_method_model.dart';
 import '../services/ride_service.dart';
@@ -46,6 +46,8 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   double? _pickupLng;
   double? _dropoffLat;
   double? _dropoffLng;
+  // Preview map route between pickup and dropoff before sending request
+  Set<Polyline> _previewRoutePolylines = {};
   PaymentMethodModel? _selectedPaymentMethod;
   String? _transporterPaymentMethod; // 'cash' or 'ecocash' - how sender will pay transporter
   String? _senderPaymentMethod; // Alias for _transporterPaymentMethod
@@ -54,8 +56,8 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   void initState() {
     super.initState();
     // Listen to changes and calculate suggested price
-    pickupController.addListener(() => _calculatePrice());
-    dropoffController.addListener(() => _calculatePrice());
+    // Pickup and dropoff are now chosen only from the map (no free typing),
+    // so we don't need to listen for manual text changes here.
     weightController.addListener(() => _calculatePrice());
     _selectedPackageType = 'small';
     _senderPaymentMethod = 'cash'; // Default to cash
@@ -86,36 +88,11 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
       return;
     }
 
-    // Try to get coordinates if missing
-    double? pickupLat = _pickupLat;
-    double? pickupLng = _pickupLng;
-    double? dropoffLat = _dropoffLat;
-    double? dropoffLng = _dropoffLng;
-
-    // Geocode addresses if coordinates are missing
-    if (pickupLat == null && pickupController.text.isNotEmpty) {
-      try {
-        final locations = await locationFromAddress(pickupController.text);
-        if (locations.isNotEmpty) {
-          pickupLat = locations.first.latitude;
-          pickupLng = locations.first.longitude;
-        }
-      } catch (e) {
-        debugPrint('Error geocoding pickup: $e');
-      }
-    }
-
-    if (dropoffLat == null && dropoffController.text.isNotEmpty) {
-      try {
-        final locations = await locationFromAddress(dropoffController.text);
-        if (locations.isNotEmpty) {
-          dropoffLat = locations.first.latitude;
-          dropoffLng = locations.first.longitude;
-        }
-      } catch (e) {
-        debugPrint('Error geocoding dropoff: $e');
-      }
-    }
+    // Use coordinates chosen from the map for both pickup and dropoff
+    final pickupLat = _pickupLat;
+    final pickupLng = _pickupLng;
+    final dropoffLat = _dropoffLat;
+    final dropoffLng = _dropoffLng;
 
     // Check if we have all coordinates now
     if (pickupLat == null ||
@@ -124,9 +101,14 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
         dropoffLng == null) {
       setState(() {
         _suggestedPrice = null;
+        _lastEstimatedDistanceKm = null;
+        _previewRoutePolylines = {};
       });
       return;
     }
+
+    // Load preview route polyline for map preview
+    _loadPreviewRoute(pickupLat, pickupLng, dropoffLat, dropoffLng);
 
     // inDrive-style: use Google Directions API (or Distance Matrix) for estimated distance,
     // then suggest recommended price from that baseline. Fallback to straight-line if API fails.
@@ -169,6 +151,42 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
         setState(() {
           _suggestedPrice = null;
           _lastEstimatedDistanceKm = null;
+          _previewRoutePolylines = {};
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPreviewRoute(
+    double pickupLat,
+    double pickupLng,
+    double dropoffLat,
+    double dropoffLng,
+  ) async {
+    try {
+      final routingService = RoutingService();
+      final route = await routingService.getRoute(
+        originLat: pickupLat,
+        originLng: pickupLng,
+        destLat: dropoffLat,
+        destLng: dropoffLng,
+      );
+      if (route != null && mounted) {
+        setState(() {
+          _previewRoutePolylines = {
+            Polyline(
+              polylineId: const PolylineId('preview_route'),
+              points: route.points,
+              color: const Color(0xFF2563EB),
+              width: 4,
+            ),
+          };
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _previewRoutePolylines = {};
         });
       }
     }
@@ -210,10 +228,13 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
   }
 
   Future<void> _bookRide() async {
-    if (pickupController.text.isEmpty || dropoffController.text.isEmpty) {
+    if (_pickupLat == null ||
+        _pickupLng == null ||
+        _dropoffLat == null ||
+        _dropoffLng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter pickup and dropoff locations'),
+          content: Text('Please select pickup and dropoff locations on the map'),
           backgroundColor: Colors.red,
         ),
       );
@@ -370,7 +391,7 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Pickup location (Places autocomplete + map/saved)
+              // Pickup location (map-only selection)
               Text(
                 'Pickup Location',
                 style: GoogleFonts.inter(
@@ -380,70 +401,70 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              AddressAutocompleteField(
-                controller: pickupController,
-                label: 'Type pickup address',
-                onPlaceSelected: (lat, lng, address) {
-                  setState(() {
-                    _pickupLat = lat;
-                    _pickupLng = lng;
-                  });
-                  _calculatePrice();
-                },
-                onClear: () {
-                  setState(() {
-                    _pickupLat = null;
-                    _pickupLng = null;
-                  });
-                },
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () async {
-                      final result = await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const LocationPickerScreen(
-                            title: 'Select Pickup Location',
-                          ),
-                        ),
-                      );
-                      if (result != null && mounted) {
-                        setState(() {
-                          pickupController.text = result['address'];
-                          _pickupLat = result['latitude'];
-                          _pickupLng = result['longitude'];
-                        });
-                        _calculatePrice();
-                      }
-                    },
-                    icon: const Icon(Icons.map, size: 18),
-                    label: const Text('Select on map'),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.grey.shade200,
+                    width: 1,
                   ),
-                  IconButton(
-                    onPressed: () async {
-                      final result = await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SavedLocationsScreen(),
+                ),
+                child: TextField(
+                  controller: pickupController,
+                  readOnly: true,
+                  onTap: () async {
+                    final result = await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LocationPickerScreen(
+                          title: 'Select Pickup Location',
                         ),
-                      );
-                      if (result != null && mounted) {
-                        setState(() {
-                          pickupController.text = result['address'];
-                          _pickupLat = result['latitude'];
-                          _pickupLng = result['longitude'];
-                        });
-                        _calculatePrice();
-                      }
-                    },
-                    icon: const Icon(Icons.bookmark, color: Color(0xFF2563EB)),
-                    tooltip: 'Saved Locations',
+                      ),
+                    );
+                    if (result != null && mounted) {
+                      setState(() {
+                        pickupController.text = result['address'];
+                        _pickupLat = result['latitude'];
+                        _pickupLng = result['longitude'];
+                      });
+                      _calculatePrice();
+                    }
+                  },
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: const Color(0xFF1E40AF),
                   ),
-                ],
+                  decoration: InputDecoration(
+                    hintText: 'Tap to select pickup on map',
+                    hintStyle: GoogleFonts.inter(
+                      color: Colors.grey.shade400,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    prefixIcon: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Icon(
+                        Icons.location_on,
+                        color: Color(0xFF2563EB),
+                        size: 20,
+                      ),
+                    ),
+                    suffixIcon: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.map,
+                        color: Color(0xFF2563EB),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
-              // Dropoff location (Places autocomplete + map/saved)
+              // Dropoff location (map-only selection)
               Text(
                 'Dropoff Location',
                 style: GoogleFonts.inter(
@@ -453,69 +474,124 @@ class _RideBookingScreenState extends State<RideBookingScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              AddressAutocompleteField(
-                controller: dropoffController,
-                label: 'Type dropoff address',
-                onPlaceSelected: (lat, lng, address) {
-                  setState(() {
-                    _dropoffLat = lat;
-                    _dropoffLng = lng;
-                  });
-                  _calculatePrice();
-                },
-                onClear: () {
-                  setState(() {
-                    _dropoffLat = null;
-                    _dropoffLng = null;
-                  });
-                },
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () async {
-                      final result = await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const LocationPickerScreen(
-                            title: 'Select Dropoff Location',
-                          ),
-                        ),
-                      );
-                      if (result != null && mounted) {
-                        setState(() {
-                          dropoffController.text = result['address'];
-                          _dropoffLat = result['latitude'];
-                          _dropoffLng = result['longitude'];
-                        });
-                        _calculatePrice();
-                      }
-                    },
-                    icon: const Icon(Icons.map, size: 18),
-                    label: const Text('Select on map'),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.grey.shade200,
+                    width: 1,
                   ),
-                  IconButton(
-                    onPressed: () async {
-                      final result = await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SavedLocationsScreen(),
+                ),
+                child: TextField(
+                  controller: dropoffController,
+                  readOnly: true,
+                  onTap: () async {
+                    final result = await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const LocationPickerScreen(
+                          title: 'Select Dropoff Location',
                         ),
-                      );
-                      if (result != null && mounted) {
-                        setState(() {
-                          dropoffController.text = result['address'];
-                          _dropoffLat = result['latitude'];
-                          _dropoffLng = result['longitude'];
-                        });
-                        _calculatePrice();
-                      }
-                    },
-                    icon: const Icon(Icons.bookmark, color: Color(0xFF2563EB)),
-                    tooltip: 'Saved Locations',
+                      ),
+                    );
+                    if (result != null && mounted) {
+                      setState(() {
+                        dropoffController.text = result['address'];
+                        _dropoffLat = result['latitude'];
+                        _dropoffLng = result['longitude'];
+                      });
+                      _calculatePrice();
+                    }
+                  },
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: const Color(0xFF1E40AF),
                   ),
-                ],
+                  decoration: InputDecoration(
+                    hintText: 'Tap to select dropoff on map',
+                    hintStyle: GoogleFonts.inter(
+                      color: Colors.grey.shade400,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
+                    prefixIcon: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Icon(
+                        Icons.location_on,
+                        color: Colors.red,
+                        size: 20,
+                      ),
+                    ),
+                    suffixIcon: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(
+                        Icons.map,
+                        color: Color(0xFF2563EB),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 20),
+              // Route preview map (shows pickup → dropoff before sending request)
+              if (_pickupLat != null &&
+                  _pickupLng != null &&
+                  _dropoffLat != null &&
+                  _dropoffLng != null) ...[
+                Text(
+                  'Route Preview',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF1E40AF),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 200,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: LatLng(
+                          (_pickupLat! + _dropoffLat!) / 2,
+                          (_pickupLng! + _dropoffLng!) / 2,
+                        ),
+                        zoom: 12,
+                      ),
+                      markers: {
+                        Marker(
+                          markerId: const MarkerId('pickup'),
+                          position: LatLng(_pickupLat!, _pickupLng!),
+                          infoWindow: const InfoWindow(title: 'Pickup'),
+                          icon: BitmapDescriptor.defaultMarkerWithHue(
+                            BitmapDescriptor.hueBlue,
+                          ),
+                        ),
+                        Marker(
+                          markerId: const MarkerId('dropoff'),
+                          position: LatLng(_dropoffLat!, _dropoffLng!),
+                          infoWindow: const InfoWindow(title: 'Dropoff'),
+                          icon: BitmapDescriptor.defaultMarkerWithHue(
+                            BitmapDescriptor.hueRed,
+                          ),
+                        ),
+                      },
+                      polylines: _previewRoutePolylines,
+                      myLocationEnabled: false,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: true,
+                      compassEnabled: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
               // Package Description
               Text(
                 'Package Description',

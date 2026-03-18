@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import '../models/ride_model.dart';
 import '../services/routing_service.dart';
 
@@ -34,36 +33,11 @@ class _RideRouteScreenState extends State<RideRouteScreen> {
       // Get driver's current location
       await _getCurrentLocation();
       
-      // Get coordinates for pickup and dropoff
-      double? pickupLat = widget.ride.pickupLat;
-      double? pickupLng = widget.ride.pickupLng;
-      double? dropoffLat = widget.ride.dropoffLat;
-      double? dropoffLng = widget.ride.dropoffLng;
-
-      // Geocode if coordinates are missing
-      if (pickupLat == null || pickupLng == null) {
-        try {
-          final locations = await locationFromAddress(widget.ride.pickupLocation);
-          if (locations.isNotEmpty) {
-            pickupLat = locations.first.latitude;
-            pickupLng = locations.first.longitude;
-          }
-        } catch (e) {
-          debugPrint('Error geocoding pickup: $e');
-        }
-      }
-
-      if (dropoffLat == null || dropoffLng == null) {
-        try {
-          final locations = await locationFromAddress(widget.ride.dropoffLocation);
-          if (locations.isNotEmpty) {
-            dropoffLat = locations.first.latitude;
-            dropoffLng = locations.first.longitude;
-          }
-        } catch (e) {
-          debugPrint('Error geocoding dropoff: $e');
-        }
-      }
+      // Get coordinates for pickup and dropoff directly from ride (set during booking)
+      final pickupLat = widget.ride.pickupLat;
+      final pickupLng = widget.ride.pickupLng;
+      final dropoffLat = widget.ride.dropoffLat;
+      final dropoffLng = widget.ride.dropoffLng;
 
       // Update markers and polylines
       if (mounted) {
