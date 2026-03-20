@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -413,20 +414,63 @@ class RideService {
 
   /// Transporter-specific negotiations that should remain visible even after logout.
   /// These are rides where the transporter is the active negotiatingTransporterId and
-  /// the ride is still in the "pending negotiation" state.
+  /// the ride is still in the negotiation phase (priceStatus can be `pending` or `accepted`).
   Stream<List<RideModel>> streamTransporterNegotiations(String transporterId) {
     return _firestore
         .collection('rides')
         .where('status', isEqualTo: 'pending')
-        .where('priceStatus', isEqualTo: 'pending')
         .where('negotiatingTransporterId', isEqualTo: transporterId)
         .snapshots()
         .map((snapshot) {
           return snapshot.docs
-              .map((doc) =>
-                  RideModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .map((doc) => RideModel.fromMap(doc.data() as Map<String, dynamic>, doc.id))
+              .where((ride) =>
+                  ride.priceStatus == 'pending' || ride.priceStatus == 'accepted')
               .toList();
         });
+  }
+
+  /// Transporter "active" items = accepted/in-progress deliveries + active negotiations.
+  Stream<List<RideModel>> streamTransporterActiveItems(String transporterId) {
+    final controller = StreamController<List<RideModel>>.broadcast();
+
+    List<RideModel> _deliveries = [];
+    List<RideModel> _negotiations = [];
+
+    void emitMerged() {
+      final byId = <String, RideModel>{};
+      for (final r in _deliveries) {
+        final id = r.id;
+        if (id != null) byId[id] = r;
+      }
+      for (final r in _negotiations) {
+        final id = r.id;
+        if (id != null) byId[id] = r;
+      }
+      controller.add(byId.values.toList());
+    }
+
+    final sub1 = streamTransporterDeliveries(transporterId).listen(
+      (data) {
+        _deliveries = data;
+        emitMerged();
+      },
+      onError: controller.addError,
+    );
+    final sub2 = streamTransporterNegotiations(transporterId).listen(
+      (data) {
+        _negotiations = data;
+        emitMerged();
+      },
+      onError: controller.addError,
+    );
+
+    controller.onCancel = () async {
+      await sub1.cancel();
+      await sub2.cancel();
+    };
+
+    return controller.stream;
   }
 
   // Get transporter's active deliveries

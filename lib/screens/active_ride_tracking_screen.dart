@@ -138,6 +138,21 @@ class ActiveRideTrackingScreen extends StatelessWidget {
             : 'This request is open and available for acceptance';
       case 'pending':
         if (!isSender) {
+          // Transporter view: tailor message based on who last sent the counter.
+          if (ride.priceStatus == 'accepted') {
+            // Sender accepted the price we proposed (finalPrice/price set), but
+            // driver/transport acceptance is not yet complete.
+            return 'Sender accepted your offer. You can now accept the delivery request.';
+          }
+
+          if (ride.lastCounterOfferBy == 'transporter' && ride.counterOffer != null) {
+            return 'Counter-offer sent. Waiting for sender reply...';
+          }
+
+          if (ride.lastCounterOfferBy == 'sender' && ride.counterOffer != null) {
+            return 'Sender proposed \$${ride.counterOffer!.toStringAsFixed(2)}. You can accept, decline, or counter.';
+          }
+
           return 'This request is being negotiated with the sender';
         }
         // Sender view: tailor message based on who sent the last counter-offer
@@ -723,7 +738,8 @@ class ActiveRideTrackingScreen extends StatelessWidget {
   Widget _buildProgressTimeline(BuildContext context, RideModel ride, bool isSender) {
     final currentStatus = ride.status;
     final steps = [
-      {'status': 'pending', 'label': 'Request Sent', 'icon': Icons.send},
+      // In this app, `pending` == negotiation (counter-offers exchanged).
+      {'status': 'pending', 'label': 'Negotiating', 'icon': Icons.handshake},
       {'status': 'accepted', 'label': 'Driver Accepted', 'icon': Icons.check_circle},
       {'status': 'in_progress', 'label': 'Driver En Route', 'icon': Icons.local_shipping},
       {'status': 'parcel_collected', 'label': 'Parcel Collected', 'icon': Icons.inventory_2},

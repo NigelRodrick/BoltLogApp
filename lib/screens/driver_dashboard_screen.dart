@@ -120,7 +120,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           ),
           body: SafeArea(
             child: StreamBuilder<List<RideModel>>(
-              stream: _rideService.streamTransporterDeliveries(user.uid),
+              stream: _rideService.streamTransporterActiveItems(user.uid),
               builder: (context, deliveriesSnapshot) {
                 return StreamBuilder<List<RideModel>>(
                   stream: _rideService.streamTransporterCompletedDeliveries(user.uid),
@@ -295,13 +295,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  'Current Requests',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: const Color(0xFF1E40AF),
-                                  ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Current Requests',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: const Color(0xFF1E40AF),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      availableRides.length.toString(),
+                                      style: GoogleFonts.inter(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: const Color(0xFF2563EB),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 if (availableRides.isNotEmpty)
                                   TextButton(
@@ -1017,6 +1031,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   Widget _buildActiveDeliveryCard(BuildContext context, RideModel delivery) {
     final statusColor = _getStatusColor(delivery.status);
     final statusLabel = _getStatusLabel(delivery.status);
+    final negotiatedAmount = delivery.finalPrice ??
+        delivery.counterOffer ??
+        delivery.price;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1057,9 +1074,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       ),
                     ),
                   ),
-                  if (delivery.price != null)
+                  if (negotiatedAmount != null)
                     Text(
-                      '\$${delivery.price!.toStringAsFixed(2)}',
+                      '\$${negotiatedAmount.toStringAsFixed(2)}',
                       style: GoogleFonts.inter(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -1145,6 +1162,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   Color _getStatusColor(String status) {
     switch (status) {
+      case 'pending':
+        return Colors.amber;
       case 'accepted':
         return Colors.orange;
       case 'in_progress':
@@ -1160,6 +1179,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
 
   String _getStatusLabel(String status) {
     switch (status) {
+      case 'pending':
+        return 'NEGOTIATING';
       case 'accepted':
         return 'ACCEPTED';
       case 'in_progress':

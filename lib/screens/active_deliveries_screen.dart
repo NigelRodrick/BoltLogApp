@@ -20,6 +20,8 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
 
   Color _getStatusColor(String status) {
     switch (status) {
+      case 'pending':
+        return Colors.amber;
       case 'accepted':
         return Colors.orange;
       case 'in_progress':
@@ -35,6 +37,8 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
 
   String _getStatusLabel(String status) {
     switch (status) {
+      case 'pending':
+        return 'NEGOTIATING';
       case 'accepted':
         return 'ACCEPTED';
       case 'in_progress':
@@ -102,7 +106,7 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
       ),
       body: SafeArea(
         child: StreamBuilder<List<RideModel>>(
-          stream: rideService.streamTransporterDeliveries(user.uid),
+          stream: rideService.streamTransporterActiveItems(user.uid),
           builder: (context, snapshot) {
             if (snapshot.data != null) _cachedDeliveries = snapshot.data;
             final deliveries = snapshot.data ?? _cachedDeliveries ?? [];
@@ -172,6 +176,9 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
   ) {
     final statusColor = _getStatusColor(delivery.status);
     final statusLabel = _getStatusLabel(delivery.status);
+    final negotiatedAmount = delivery.finalPrice ??
+        delivery.counterOffer ??
+        delivery.price;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -206,9 +213,9 @@ class _ActiveDeliveriesScreenState extends State<ActiveDeliveriesScreen> {
                     ),
                   ),
                 ),
-                if (delivery.price != null)
+                if (negotiatedAmount != null)
                   Text(
-                    '\$${delivery.price!.toStringAsFixed(2)}',
+                    '\$${negotiatedAmount.toStringAsFixed(2)}',
                     style: GoogleFonts.inter(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
