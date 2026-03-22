@@ -1,5 +1,6 @@
-# Builds a release APK on GitHub-hosted runners (no local Android SDK needed).
-# Download: repo → Actions → "Build Android APK" → latest run → Artifacts → boltlog-apk
+# Builds a release APK on GitHub (nothing is committed to git — download from Artifacts).
+# Download: GitHub → Actions → "Build Android APK" → latest successful run → Artifacts → boltlog-apk
+# Trigger: push to main (when app paths change), or Actions → Run workflow.
 name: Build Android APK
 
 on:
@@ -31,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: write # upload-artifact
 
 jobs:
   build-android:

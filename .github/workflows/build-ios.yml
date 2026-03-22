@@ -1,3 +1,6 @@
+# Builds iOS on macOS (unsigned archive — sign locally or in App Store Connect).
+# Download: GitHub → Actions → "Build iOS archive" → Artifacts → boltlog-ios-archive
+# Trigger: push to main (when ios/lib paths change), or Actions → Run workflow.
 name: Build iOS archive
 
 on:
@@ -12,9 +15,18 @@ on:
       - "pubspec.yaml"
       - ".github/workflows/build-ios.yml"
 
+permissions:
+  contents: read
+  actions: write # upload-artifact
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-ios:
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -23,8 +35,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.3'
-          channel: 'stable'
+          channel: stable
+          cache: true
 
       - name: Get Dart & Flutter dependencies
         run: flutter pub get
@@ -42,5 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: boltlog-ios-archive
-          path: build/ios/archive/**
+          path: build/ios/archive/
+          if-no-files-found: error
+          retention-days: 90
 
