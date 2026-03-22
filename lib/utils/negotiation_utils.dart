@@ -11,3 +11,25 @@ bool negotiationInProgress(RideModel ride) {
       ride.acceptedTransporterId != null;
 }
 
+/// Amount on the table for UI: agreed price, else latest counter-offer (overwrites
+/// the initial proposal in display), else sender's original [RideModel.price].
+double? effectiveOfferAmount(RideModel ride) {
+  return ride.finalPrice ?? ride.counterOffer ?? ride.price;
+}
+
+/// Primary label for the single price row during negotiation.
+String effectiveOfferLabel(RideModel ride, {required bool isSender}) {
+  if (ride.finalPrice != null) return 'Agreed price';
+  if (ride.counterOffer != null) return 'Current offer';
+  return isSender ? 'Your offer' : 'Sender\'s offer';
+}
+
+/// Optional one-line hint: who last moved the number (only when counter exists).
+String? effectiveOfferLastMoveHint(RideModel ride) {
+  if (ride.finalPrice != null) return null;
+  if (ride.counterOffer == null) return null;
+  return ride.lastCounterOfferBy == 'transporter'
+      ? 'Last proposed by transporter'
+      : 'Last proposed by sender';
+}
+

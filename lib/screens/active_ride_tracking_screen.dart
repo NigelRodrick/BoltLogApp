@@ -8,6 +8,7 @@ import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
 import '../utils/chat_utils.dart';
+import '../utils/negotiation_utils.dart';
 import 'request_detail_screen.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
@@ -868,6 +869,9 @@ class ActiveRideTrackingScreen extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        final isSender = uid != null && uid == ride.userId;
+        final onTable = effectiveOfferAmount(ride);
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -879,7 +883,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Negotiation history',
+                      'Offer',
                       style: GoogleFonts.inter(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -899,48 +903,49 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'From your initial amount to the latest counter-offer.',
+                  'Only the latest amount on the table is shown.',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: Colors.grey.shade600,
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Initial sender amount
-                if (ride.price != null)
+                if (onTable != null)
                   ListTile(
-                    leading: const Icon(Icons.person, color: Color(0xFF2563EB)),
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      ride.finalPrice != null
+                          ? Icons.check_circle
+                          : Icons.attach_money,
+                      color: ride.finalPrice != null
+                          ? Colors.green
+                          : const Color(0xFF2563EB),
+                    ),
                     title: Text(
-                      'Sender\'s initial amount',
+                      effectiveOfferLabel(ride, isSender: isSender),
                       style: GoogleFonts.inter(fontWeight: FontWeight.w600),
                     ),
+                    subtitle: effectiveOfferLastMoveHint(ride) != null
+                        ? Text(
+                            effectiveOfferLastMoveHint(ride)!,
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          )
+                        : null,
                     trailing: Text(
-                      '\$${ride.price!.toStringAsFixed(2)}',
+                      '\$${onTable.toStringAsFixed(2)}',
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: const Color(0xFF2563EB),
-                      ),
-                    ),
-                  ),
-                // Latest negotiated value from ride doc
-                if (ride.counterOffer != null)
-                  ListTile(
-                    leading: const Icon(Icons.local_shipping, color: Colors.amber),
-                    title: Text(
-                      ride.lastCounterOfferBy == 'transporter'
-                          ? 'Transporter counter-offer'
-                          : 'Your counter-offer',
-                      style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                    ),
-                    trailing: Text(
-                      '\$${ride.counterOffer!.toStringAsFixed(2)}',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: ride.lastCounterOfferBy == 'transporter'
-                            ? Colors.amber.shade800
-                            : Colors.green.shade700,
+                        color: ride.finalPrice != null
+                            ? const Color(0xFF15803D)
+                            : (ride.counterOffer == null
+                                ? const Color(0xFF2563EB)
+                                : (ride.lastCounterOfferBy == 'transporter'
+                                    ? Colors.amber.shade800
+                                    : Colors.green.shade700)),
                       ),
                     ),
                   ),

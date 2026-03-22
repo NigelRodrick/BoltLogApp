@@ -639,92 +639,39 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          isSender ? 'Your original offer' : 'Sender\'s offer',
+                          effectiveOfferLabel(ride, isSender: isSender),
                           style: GoogleFonts.inter(
                             fontSize: 14,
                             color: Colors.grey.shade600,
                           ),
                         ),
+                        if (effectiveOfferLastMoveHint(ride) != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            effectiveOfferLastMoveHint(ride)!,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 4),
                         Text(
-                          ride.price != null
-                              ? '\$${ride.price!.toStringAsFixed(2)}'
+                          effectiveOfferAmount(ride) != null
+                              ? '\$${effectiveOfferAmount(ride)!.toStringAsFixed(2)}'
                               : 'Not specified',
                           style: GoogleFonts.inter(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: const Color(0xFF2563EB),
+                            color: ride.finalPrice != null
+                                ? const Color(0xFF15803D)
+                                : (ride.counterOffer != null
+                                    ? (ride.lastCounterOfferBy == 'transporter'
+                                        ? Colors.amber.shade800
+                                        : Colors.green.shade700)
+                                    : const Color(0xFF2563EB)),
                           ),
                         ),
-                        // For the sender, always show the current amount on the table
-                        if (isSender) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Current amount being negotiated / agreed',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            (() {
-                              final current =
-                                  ride.finalPrice ?? ride.counterOffer ?? ride.price;
-                              if (current == null) return 'No amount set';
-                              return '\$${current.toStringAsFixed(2)}';
-                            })(),
-                            style: GoogleFonts.inter(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF15803D),
-                            ),
-                          ),
-                        ],
-                        // Permanently show the latest negotiated amount (for both sender and transporter)
-                        if (ride.finalPrice != null || ride.counterOffer != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            'Negotiated amount',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '\$${(ride.finalPrice ?? ride.counterOffer)!.toStringAsFixed(2)}',
-                            style: GoogleFonts.inter(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFF15803D),
-                            ),
-                          ),
-                        ],
-                        // Latest negotiated offer (visible to both sender and transporter)
-                        if (ride.counterOffer != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            ride.lastCounterOfferBy == 'transporter'
-                                ? 'Transporter\'s latest offer'
-                                : 'Your latest counter-offer',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '\$${ride.counterOffer!.toStringAsFixed(2)}',
-                            style: GoogleFonts.inter(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: ride.lastCounterOfferBy == 'transporter'
-                                  ? Colors.amber.shade800
-                                  : Colors.green.shade700,
-                            ),
-                          ),
-                        ],
                         if (isTransporter &&
                             userModel?.ratePer10Km != null &&
                             userModel!.ratePer10Km! > 0 &&

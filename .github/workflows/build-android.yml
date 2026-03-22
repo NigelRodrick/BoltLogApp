@@ -1,3 +1,5 @@
+# Builds a release APK on GitHub-hosted runners (no local Android SDK needed).
+# Download: repo → Actions → "Build Android APK" → latest run → Artifacts → boltlog-apk
 name: Build Android APK
 
 on:
@@ -6,10 +8,34 @@ on:
     branches:
       - main
       - master
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/build-android.yml"
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - "lib/**"
+      - "android/**"
+      - "pubspec.yaml"
+      - "pubspec.lock"
+      - ".github/workflows/build-android.yml"
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -18,14 +44,13 @@ jobs:
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
-      - name: Set up Flutter
+      - name: Set up Flutter (stable)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.4'
-          channel: 'stable'
+          channel: stable
           cache: true
 
       - name: Accept Android SDK licenses
@@ -42,3 +67,5 @@ jobs:
         with:
           name: boltlog-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 90

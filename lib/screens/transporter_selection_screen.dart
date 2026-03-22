@@ -383,31 +383,25 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
                         ),
                         if (ride.price != null || ride.counterOffer != null) ...[
                           const SizedBox(height: 8),
-                          if (ride.price != null)
+                          if (effectiveOfferAmount(ride) != null)
                             Text(
-                              'Your amount: \$${ride.price!.toStringAsFixed(2)}',
+                              ride.finalPrice != null
+                                  ? 'Agreed price: \$${effectiveOfferAmount(ride)!.toStringAsFixed(2)}'
+                                  : (ride.counterOffer != null
+                                      ? 'Current offer: \$${effectiveOfferAmount(ride)!.toStringAsFixed(2)}'
+                                      : 'Your amount: \$${effectiveOfferAmount(ride)!.toStringAsFixed(2)}'),
                               style: GoogleFonts.inter(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: const Color(0xFF2563EB),
+                                color: ride.finalPrice != null
+                                    ? const Color(0xFF15803D)
+                                    : (ride.counterOffer != null
+                                        ? (ride.lastCounterOfferBy == 'transporter'
+                                            ? Colors.amber.shade800
+                                            : Colors.green.shade700)
+                                        : const Color(0xFF2563EB)),
                               ),
                             ),
-                          if (ride.counterOffer != null &&
-                              ride.priceStatus == 'pending') ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              ride.lastCounterOfferBy == 'transporter'
-                                  ? 'Transporter proposed: \$${ride.counterOffer!.toStringAsFixed(2)}'
-                                  : 'Your counter-offer: \$${ride.counterOffer!.toStringAsFixed(2)}',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: ride.lastCounterOfferBy == 'transporter'
-                                    ? Colors.amber.shade800
-                                    : Colors.green.shade700,
-                              ),
-                            ),
-                          ],
                         ],
                         // Persistent status: sender sent counter-offer, waiting for transporter
                         if (isOwner &&
@@ -1041,14 +1035,6 @@ class _OfferCardState extends State<_OfferCard> {
                                             color: const Color(0xFF2563EB),
                                           ),
                                         ),
-                                        if (originalPriceValue != null)
-                                          Text(
-                                            'Your offer: \$${originalPriceValue.toStringAsFixed(2)}',
-                                            style: GoogleFonts.inter(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
                                       ],
                                     ),
                                   ),
