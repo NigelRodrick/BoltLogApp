@@ -29,3 +29,7 @@ The CI build uses **`flutter build ipa --release --no-codesign`**. You still nee
 ## Firestore rules deploy
 
 See **`docs/FIREBASE_CI.md`** — separate workflow **Deploy Firestore rules**.
+
+## Workflows don’t start?
+
+See **`docs/TROUBLESHOOTING_GITHUB_ACTIONS.md`** (enable Actions in Settings, forks, etc.).

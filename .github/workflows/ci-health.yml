@@ -1,0 +1,22 @@
+# Minimal workflow to verify GitHub Actions runs on push to main.
+# If this never appears under Actions, enable Actions in repo Settings (see docs/TROUBLESHOOTING_GITHUB_ACTIONS.md).
+name: CI health check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Actions OK
+        run: |
+          echo "ref=${{ github.ref }} sha=${{ github.sha }}"
+          echo "If you see this, GitHub Actions is enabled for this repo."
