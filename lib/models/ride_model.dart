@@ -36,6 +36,10 @@ class RideModel {
   final DateTime? cancelledAt;
   final String? cancelledBy; // 'sender' or 'transporter' or 'system'
   final String? cancellationReason;
+  /// Last known transporter GPS (written by transporter during active delivery).
+  final double? driverLiveLat;
+  final double? driverLiveLng;
+  final String? driverLocationUpdatedAt;
 
   RideModel({
     this.id,
@@ -69,6 +73,9 @@ class RideModel {
     this.cancelledAt,
     this.cancelledBy,
     this.cancellationReason,
+    this.driverLiveLat,
+    this.driverLiveLng,
+    this.driverLocationUpdatedAt,
   });
 
   Map<String, dynamic> toMap() {
@@ -104,7 +111,56 @@ class RideModel {
     if (cancelledAt != null) map['cancelledAt'] = cancelledAt!.toIso8601String();
     if (cancelledBy != null) map['cancelledBy'] = cancelledBy;
     if (cancellationReason != null) map['cancellationReason'] = cancellationReason;
+    if (driverLiveLat != null) map['driverLiveLat'] = driverLiveLat;
+    if (driverLiveLng != null) map['driverLiveLng'] = driverLiveLng;
+    if (driverLocationUpdatedAt != null) {
+      map['driverLocationUpdatedAt'] = driverLocationUpdatedAt;
+    }
     return map;
+  }
+
+  /// Matches server fields set by [RideService.respondToCounterOffer] when the sender
+  /// accepts the transporter's counter-offer. Use for instant navigation without a
+  /// second [getRideById] round-trip.
+  RideModel afterSenderAcceptedCounterOffer() {
+    final agreed = counterOffer ?? price;
+    final tid = negotiatingTransporterId;
+    return RideModel(
+      id: id,
+      userId: userId,
+      driverId: driverId,
+      acceptedTransporterId: tid,
+      pickupLocation: pickupLocation,
+      dropoffLocation: dropoffLocation,
+      pickupLat: pickupLat,
+      pickupLng: pickupLng,
+      dropoffLat: dropoffLat,
+      dropoffLng: dropoffLng,
+      status: 'pending',
+      price: agreed,
+      createdAt: createdAt,
+      completedAt: completedAt,
+      notes: notes,
+      packageDescription: packageDescription,
+      weight: weight,
+      dimensions: dimensions,
+      packageType: packageType,
+      transportType: transportType,
+      estimatedValue: estimatedValue,
+      counterOffer: null,
+      priceStatus: 'accepted',
+      lastCounterOfferBy: lastCounterOfferBy,
+      negotiatingTransporterId: tid,
+      senderLastViewedAt: senderLastViewedAt,
+      senderPaymentMethod: senderPaymentMethod,
+      finalPrice: agreed,
+      cancelledAt: cancelledAt,
+      cancelledBy: cancelledBy,
+      cancellationReason: cancellationReason,
+      driverLiveLat: driverLiveLat,
+      driverLiveLng: driverLiveLng,
+      driverLocationUpdatedAt: driverLocationUpdatedAt,
+    );
   }
 
   factory RideModel.fromMap(Map<String, dynamic> map, String id) {
@@ -140,6 +196,9 @@ class RideModel {
       cancelledAt: map['cancelledAt'] != null ? DateTime.parse(map['cancelledAt']) : null,
       cancelledBy: map['cancelledBy'],
       cancellationReason: map['cancellationReason'],
+      driverLiveLat: (map['driverLiveLat'] as num?)?.toDouble(),
+      driverLiveLng: (map['driverLiveLng'] as num?)?.toDouble(),
+      driverLocationUpdatedAt: map['driverLocationUpdatedAt'] as String?,
     );
   }
 }

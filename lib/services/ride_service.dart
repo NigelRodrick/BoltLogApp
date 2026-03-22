@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../config/testing_flags.dart';
 import 'package:flutter/foundation.dart';
@@ -165,6 +166,42 @@ class RideService {
       }
       return null;
     });
+  }
+
+  /// Transporter writes live GPS to the ride document so the sender's tracking map
+  /// updates in real time via [streamRideById].
+  Future<void> updateDriverLiveLocationOnRide(
+    String rideId,
+    double latitude,
+    double longitude,
+  ) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      throw Exception('Not signed in');
+    }
+    try {
+      final rideRef = _firestore.collection('rides').doc(rideId);
+      final snap = await rideRef.get();
+      if (!snap.exists) throw Exception('Ride not found');
+      final data = snap.data()!;
+      final driverId = data['driverId'] as String?;
+      final accepted = data['acceptedTransporterId'] as String?;
+      final negotiating = data['negotiatingTransporterId'] as String?;
+      final status = data['status'] as String? ?? '';
+      final allowed = driverId == uid ||
+          accepted == uid ||
+          (status == 'pending' && (negotiating == uid || accepted == uid));
+      if (!allowed) {
+        throw Exception('Not assigned to this delivery');
+      }
+      await rideRef.update({
+        'driverLiveLat': latitude,
+        'driverLiveLng': longitude,
+        'driverLocationUpdatedAt': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      throw Exception('Error updating live location: $e');
+    }
   }
 
   // Cancel ride (convenience wrapper)

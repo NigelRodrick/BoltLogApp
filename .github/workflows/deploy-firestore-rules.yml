@@ -1,23 +1,52 @@
 # Deploy Firestore rules when firestore.rules changes or on manual run.
-# One-time setup: In repo Settings → Secrets → Actions, add FIREBASE_TOKEN.
-# Get token by running locally: npx firebase login:ci
+# PRs: validate rules (dry-run). Push to main / manual: deploy to Firebase.
+#
+# Setup: Repo → Settings → Secrets → Actions → FIREBASE_TOKEN (npx firebase login:ci)
+# Docs: docs/FIREBASE_CI.md
+
 name: Deploy Firestore rules
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
+  pull_request:
+    branches: [main, master]
     paths:
       - 'firestore.rules'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy-firestore-rules.yml'
+  push:
+    branches: [main, master]
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy-firestore-rules.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-rules-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FIREBASE_TOOLS_VERSION: '13'
+  # Must match .firebaserc default project
+  FIREBASE_PROJECT: boltlog
 
 jobs:
-  deploy-rules:
+  validate-rules:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Check for FIREBASE_TOKEN
         id: has-token
@@ -28,17 +57,58 @@ jobs:
             echo "defined=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy Firestore rules
+      - name: Validate Firestore rules (compile + dry-run)
         if: steps.has-token.outputs.defined == 'true'
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only firestore
+        run: |
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy \
+            --only firestore:rules \
+            --project ${{ env.FIREBASE_PROJECT }} \
+            --non-interactive \
+            --dry-run
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
-      - name: Skip (no FIREBASE_TOKEN)
+      - name: Skip validation (no FIREBASE_TOKEN)
         if: steps.has-token.outputs.defined == 'false'
         run: |
-          echo "FIREBASE_TOKEN secret not set. Skipping deploy."
-          echo "To deploy from CI: add FIREBASE_TOKEN in repo Settings → Secrets → Actions (get it with: npx firebase login:ci)"
-          echo "Or deploy locally: npx firebase-tools login && npx firebase-tools deploy --only firestore"
+          echo "::warning::FIREBASE_TOKEN not set — skipping rules dry-run. Add the secret for PR checks."
+          echo "Create token: npx firebase login:ci"
+
+  deploy-rules:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for FIREBASE_TOKEN
+        id: has-token
+        run: |
+          if [ -n "${{ secrets.FIREBASE_TOKEN }}" ]; then
+            echo "defined=true" >> $GITHUB_OUTPUT
+          else
+            echo "defined=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy Firestore rules to Firebase
+        if: steps.has-token.outputs.defined == 'true'
+        run: |
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy \
+            --only firestore:rules \
+            --project ${{ env.FIREBASE_PROJECT }} \
+            --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      - name: Missing FIREBASE_TOKEN (deploy skipped)
+        if: steps.has-token.outputs.defined == 'false'
+        run: |
+          echo "::error::FIREBASE_TOKEN is not set. Add it under Settings → Secrets → Actions to enable deploy."
+          echo "Create token: npx firebase login:ci"
+          echo "Or deploy locally: npx firebase-tools deploy --only firestore:rules --project ${{ env.FIREBASE_PROJECT }}"
+          exit 1

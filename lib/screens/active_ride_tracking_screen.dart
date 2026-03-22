@@ -9,6 +9,8 @@ import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
 import '../utils/chat_utils.dart';
 import '../utils/negotiation_utils.dart';
+import '../utils/live_map_copy.dart';
+import '../widgets/map_call_action_bar.dart';
 import 'request_detail_screen.dart';
 import 'chat_screen.dart';
 import 'rating_screen.dart';
@@ -230,6 +232,13 @@ class ActiveRideTrackingScreen extends StatelessWidget {
               status != 'cancelled' &&
               status != 'open' &&
               status != 'pending';
+          final showSenderLiveMap = isSender &&
+              (currentRide.driverId != null ||
+                  currentRide.acceptedTransporterId != null) &&
+              status != 'cancelled' &&
+              status != 'open' &&
+              currentRide.pickupLat != null &&
+              currentRide.dropoffLat != null;
           final statusColor = _getStatusColor(status);
           final statusLabel = _getStatusLabel(status, isSender: isSender);
           final statusMessage = _getStatusMessage(currentRide, isSender: isSender);
@@ -310,8 +319,8 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 _buildProgressTimeline(context, currentRide, isSender),
                 const SizedBox(height: 20),
-                // Map: pickup, dropoff, delivery route (persists with streamed currentRide)
-                if (isDeliveryPhase) ...[
+                // Map: pickup, dropoff, route + live transporter (streamed on ride doc)
+                if (showSenderLiveMap) ...[
                   _SenderTrackingMap(ride: currentRide, status: status),
                   const SizedBox(height: 20),
                 ],
@@ -1015,14 +1024,15 @@ class _SenderTrackingMap extends StatefulWidget {
 
 class _SenderTrackingMapState extends State<_SenderTrackingMap> {
   GoogleMapController? _controller;
-  Set<Marker> _markers = {};
-  Set<Polyline> _polylines = {};
+  Set<Polyline> _routePolylines = {};
   double? _pickupLat;
   double? _pickupLng;
   double? _dropoffLat;
   double? _dropoffLng;
   bool _loading = true;
   String? _error;
+  double? _lastFittedDriverLat;
+  double? _lastFittedDriverLng;
 
   @override
   void initState() {
@@ -1064,7 +1074,7 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
       );
       if (route != null && mounted) {
         setState(() {
-          _polylines = {
+          _routePolylines = {
             Polyline(
               polylineId: const PolylineId('delivery_route'),
               points: route.points,
@@ -1078,21 +1088,126 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
 
     if (mounted) {
       setState(() {
-        _markers = {
-          Marker(
-            markerId: const MarkerId('pickup'),
-            position: LatLng(pickupLat!, pickupLng!),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-            infoWindow: InfoWindow(title: 'Pickup', snippet: widget.ride.pickupLocation),
-          ),
-          Marker(
-            markerId: const MarkerId('dropoff'),
-            position: LatLng(dropoffLat!, dropoffLng!),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-            infoWindow: InfoWindow(title: 'Delivery', snippet: widget.ride.dropoffLocation),
-          ),
-        };
         _loading = false;
+      });
+    }
+  }
+
+  Set<Marker> _buildMarkers() {
+    final pickupLat = _pickupLat;
+    final pickupLng = _pickupLng;
+    final dropoffLat = _dropoffLat;
+    final dropoffLng = _dropoffLng;
+    if (pickupLat == null || pickupLng == null || dropoffLat == null || dropoffLng == null) {
+      return {};
+    }
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('pickup'),
+        position: LatLng(pickupLat, pickupLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        infoWindow: InfoWindow(title: 'Pickup', snippet: widget.ride.pickupLocation),
+      ),
+      Marker(
+        markerId: const MarkerId('dropoff'),
+        position: LatLng(dropoffLat, dropoffLng),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: InfoWindow(title: 'Delivery', snippet: widget.ride.dropoffLocation),
+      ),
+    };
+    final dLat = widget.ride.driverLiveLat;
+    final dLng = widget.ride.driverLiveLng;
+    if (dLat != null && dLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('transporter_live'),
+          position: LatLng(dLat, dLng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: const InfoWindow(
+            title: 'Transporter',
+            snippet: 'Live location',
+          ),
+        ),
+      );
+    }
+    return markers;
+  }
+
+  Set<Polyline> _buildPolylines() {
+    final polylines = {..._routePolylines};
+    final dLat = widget.ride.driverLiveLat;
+    final dLng = widget.ride.driverLiveLng;
+    if (dLat == null || dLng == null || _pickupLat == null || _pickupLng == null) {
+      return polylines;
+    }
+    if (widget.status == 'parcel_collected' && _dropoffLat != null && _dropoffLng != null) {
+      polylines.add(
+        Polyline(
+          polylineId: const PolylineId('live_to_dropoff'),
+          points: [
+            LatLng(dLat, dLng),
+            LatLng(_dropoffLat!, _dropoffLng!),
+          ],
+          color: Colors.green.shade600,
+          width: 3,
+        ),
+      );
+    } else if (widget.status != 'completed' && widget.status != 'cancelled') {
+      polylines.add(
+        Polyline(
+          polylineId: const PolylineId('live_to_pickup'),
+          points: [
+            LatLng(dLat, dLng),
+            LatLng(_pickupLat!, _pickupLng!),
+          ],
+          color: Colors.green.shade600,
+          width: 3,
+        ),
+      );
+    }
+    return polylines;
+  }
+
+  void _fitCameraToMarkers() {
+    final markers = _buildMarkers();
+    if (_controller == null || markers.isEmpty) return;
+    double minLat = double.infinity;
+    double maxLat = -double.infinity;
+    double minLng = double.infinity;
+    double maxLng = -double.infinity;
+    for (final m in markers) {
+      final lat = m.position.latitude;
+      final lng = m.position.longitude;
+      minLat = minLat < lat ? minLat : lat;
+      maxLat = maxLat > lat ? maxLat : lat;
+      minLng = minLng < lng ? minLng : lng;
+      maxLng = maxLng > lng ? maxLng : lng;
+    }
+    if (minLat.isFinite) {
+      _controller!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          56,
+        ),
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(_SenderTrackingMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final dLat = widget.ride.driverLiveLat;
+    final dLng = widget.ride.driverLiveLng;
+    if (dLat != null &&
+        dLng != null &&
+        (dLat != _lastFittedDriverLat || dLng != _lastFittedDriverLng)) {
+      _lastFittedDriverLat = dLat;
+      _lastFittedDriverLng = dLng;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fitCameraToMarkers();
       });
     }
   }
@@ -1122,11 +1237,14 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
       );
     }
 
-    final statusLabel = widget.status == 'parcel_collected'
-        ? 'Parcel collected – Driver on the way to deliver'
-        : widget.status == 'completed'
-            ? 'Delivered'
-            : 'Driver on the way to collect your parcel';
+    final hasLive = widget.ride.driverLiveLat != null && widget.ride.driverLiveLng != null;
+    final statusLabel = LiveMapCopy.senderMapTitle(
+      rideStatus: widget.status,
+      hasLiveGps: hasLive,
+    );
+
+    final markers = _buildMarkers();
+    final polylines = _buildPolylines();
 
     return Card(
       elevation: 2,
@@ -1139,17 +1257,34 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
             color: const Color(0xFF1E40AF).withOpacity(0.08),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.map, color: const Color(0xFF2563EB), size: 22),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    statusLabel,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF1E40AF),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        statusLabel,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF1E40AF),
+                        ),
+                      ),
+                      if (widget.status != 'completed') ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          LiveMapCopy.senderMapSharedTripHint,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            height: 1.25,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -1168,28 +1303,20 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
                         ),
                         onMapCreated: (c) {
                           _controller = c;
-                          if (_pickupLat != null && _dropoffLat != null) {
-                            final minLat = _pickupLat! < _dropoffLat! ? _pickupLat! : _dropoffLat!;
-                            final maxLat = _pickupLat! > _dropoffLat! ? _pickupLat! : _dropoffLat!;
-                            final minLng = _pickupLng! < _dropoffLng! ? _pickupLng! : _dropoffLng!;
-                            final maxLng = _pickupLng! > _dropoffLng! ? _pickupLng! : _dropoffLng!;
-                            _controller?.animateCamera(
-                              CameraUpdate.newLatLngBounds(
-                                LatLngBounds(
-                                  southwest: LatLng(minLat, minLng),
-                                  northeast: LatLng(maxLat, maxLng),
-                                ),
-                                48,
-                              ),
-                            );
-                          }
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) _fitCameraToMarkers();
+                          });
                         },
-                        markers: _markers,
-                        polylines: _polylines,
+                        markers: markers,
+                        polylines: polylines,
                         myLocationButtonEnabled: false,
                         zoomControlsEnabled: true,
                         mapType: MapType.normal,
                       ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 10, 8, 4),
+            child: MapCallActionBar(ride: widget.ride),
           ),
         ],
       ),

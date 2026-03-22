@@ -11,6 +11,7 @@ import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/user_service.dart';
 import '../utils/negotiation_utils.dart';
+import 'active_ride_tracking_screen.dart';
 
 /// Filters offers to transporters whose truckType matches the ride's transportType,
 /// and sorts by default price (distance × rate) ascending so sender can compare charges.
@@ -1083,19 +1084,27 @@ class _OfferCardState extends State<_OfferCard> {
                                                   });
                                                   try {
                                                     if (hasCounterOffer) {
-                                                      // Accept the counter-offer
+                                                      // Accept the counter-offer → tracking opens immediately
                                                       await rideService.respondToCounterOffer(
                                                         widget.rideId,
                                                         widget.offer.id,
                                                         true,
                                                       );
                                                       if (!mounted) return;
-                                                      ScaffoldMessenger.of(context)
-                                                          .showSnackBar(
-                                                        const SnackBar(
-                                                          content: Text(
-                                                              'Counter-offer accepted! Transporter can now accept the ride.'),
-                                                          backgroundColor: Colors.green,
+                                                      final snapshot = rideData != null
+                                                          ? RideModel.fromMap(
+                                                              rideData!,
+                                                              widget.rideId,
+                                                            )
+                                                          : widget.ride;
+                                                      final next = snapshot
+                                                          .afterSenderAcceptedCounterOffer();
+                                                      Navigator.of(context)
+                                                          .pushReplacement(
+                                                        MaterialPageRoute<void>(
+                                                          builder: (_) =>
+                                                              ActiveRideTrackingScreen(
+                                                                  ride: next),
                                                         ),
                                                       );
                                                     } else {

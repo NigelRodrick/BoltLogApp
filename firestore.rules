@@ -5,71 +5,93 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-    
+
+    function authUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function authIsDriver() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        authUserData().role == 'Driver';
+    }
+
     function isValidUserData() {
       return request.resource.data.keys().hasAll(['uid', 'email', 'createdAt']) &&
              request.resource.data.uid == request.auth.uid;
     }
-    
+
     function isValidRideData() {
       return request.resource.data.keys().hasAll(['userId', 'pickupLocation', 'dropoffLocation', 'status', 'createdAt']) &&
              request.resource.data.userId == request.auth.uid;
     }
-    
+
+    // Sender must not change transporter live GPS fields on the ride doc (written by driver app).
+    function senderNotTamperingDriverLiveLocation() {
+      return request.resource.data.driverLiveLat == resource.data.driverLiveLat &&
+             request.resource.data.driverLiveLng == resource.data.driverLiveLng &&
+             request.resource.data.driverLocationUpdatedAt == resource.data.driverLocationUpdatedAt;
+    }
+
     // Users collection
     match /users/{userId} {
-      // Users can read their own data or driver profiles (for ratings, etc.)
+      // - Own profile
+      // - Any Driver profile (senders browse nearby drivers; ratings)
+      // - Passenger profiles readable by Drivers (call / contact sender on an active trip)
+      //   Note: this allows any Driver to read any Passenger doc; tighten later with a contacts subcollection if needed.
       allow read: if isAuthenticated() && (
         isOwner(userId) ||
-        resource.data.role == 'Driver'
+        resource.data.role == 'Driver' ||
+        (authIsDriver() && resource.data.role == 'Passenger')
       );
-      
+
       // Users can only write their own data
       allow create: if isAuthenticated() && isValidUserData();
       allow update: if isAuthenticated() && isOwner(userId);
       allow delete: if isAuthenticated() && isOwner(userId);
     }
-    
+
     // Rides collection
     match /rides/{rideId} {
       // Anyone authenticated can read rides
       allow read: if isAuthenticated();
-      
+
       // Only the sender can create their own rides
       allow create: if isAuthenticated() && isValidRideData();
-      
-      // Sender can update their own rides; transporter can set driver when accepting or update during negotiation
+
+      // Sender updates: cannot set/change driverLiveLat, driverLiveLng, driverLocationUpdatedAt (transporter-only).
+      // Transporter: assigned driver, or during open/pending negotiation.
       allow update: if isAuthenticated() && (
-        resource.data.userId == request.auth.uid ||
+        (resource.data.userId == request.auth.uid && senderNotTamperingDriverLiveLocation()) ||
         (request.resource.data.driverId == request.auth.uid &&
          (resource.data.driverId == null || resource.data.driverId == request.auth.uid)) ||
         (resource.data.status in ['open', 'pending'] && resource.data.userId != request.auth.uid)
       );
-      
+
       // Only sender can delete their own rides
-      allow delete: if isAuthenticated() && 
+      allow delete: if isAuthenticated() &&
                        resource.data.userId == request.auth.uid;
-      
+
       // Offers subcollection
       match /offers/{offerId} {
         // Anyone authenticated can read offers for a ride
         allow read: if isAuthenticated();
-        
+
         // Transporters can create their own offers
-        allow create: if isAuthenticated() && 
+        allow create: if isAuthenticated() &&
                          request.resource.data.transporterId == request.auth.uid;
-        
+
         // Transporter can update their own offer, sender can update any offer
         allow update: if isAuthenticated() && (
           resource.data.transporterId == request.auth.uid ||
           get(/databases/$(database)/documents/rides/$(rideId)).data.userId == request.auth.uid
         );
       }
-      
+
       // Messages subcollection
       match /messages/{messageId} {
         // Only sender and driver of the ride can read messages
@@ -77,14 +99,14 @@ service cloud.firestore {
           resource.data.senderId == request.auth.uid ||
           resource.data.receiverId == request.auth.uid
         );
-        
+
         // Users can create messages where they are sender or receiver.
         // (Transporter also needs to be able to create messages after accepting a counter-offer.)
         allow create: if isAuthenticated() && (
           request.resource.data.senderId == request.auth.uid ||
           request.resource.data.receiverId == request.auth.uid
         );
-        
+
         // Users can update their own messages (mark as read).
         // Both sender and receiver should be able to mark messages as read.
         allow update: if isAuthenticated() && (
@@ -92,59 +114,59 @@ service cloud.firestore {
           resource.data.receiverId == request.auth.uid
         );
       }
-      
+
       // Viewers subcollection
       match /viewers/{viewerId} {
         allow read, write: if isAuthenticated() && viewerId == request.auth.uid;
       }
     }
-    
+
     // Ratings collection
     match /ratings/{ratingId} {
       // Users can read ratings for any user
       allow read: if isAuthenticated();
-      
+
       // Users can create ratings
-      allow create: if isAuthenticated() && 
+      allow create: if isAuthenticated() &&
                        request.resource.data.fromUserId == request.auth.uid;
-      
+
       // Users can only update their own ratings
-      allow update: if isAuthenticated() && 
+      allow update: if isAuthenticated() &&
                        resource.data.fromUserId == request.auth.uid;
     }
-    
+
     // Saved locations collection
     match /savedLocations/{locationId} {
       // Users can only read their own saved locations
-      allow read: if isAuthenticated() && 
+      allow read: if isAuthenticated() &&
                      resource.data.userId == request.auth.uid;
-      
+
       // Users can create their own saved locations
-      allow create: if isAuthenticated() && 
+      allow create: if isAuthenticated() &&
                        request.resource.data.userId == request.auth.uid;
-      
+
       // Users can only update/delete their own saved locations
-      allow update, delete: if isAuthenticated() && 
+      allow update, delete: if isAuthenticated() &&
                                resource.data.userId == request.auth.uid;
     }
-    
+
     // Notifications collection
     match /notifications/{notificationId} {
       // Users can only read their own notifications
-      allow read: if isAuthenticated() && 
+      allow read: if isAuthenticated() &&
                      resource.data.userId == request.auth.uid;
-      
+
       // System can create notifications (via Cloud Functions)
       // Users can update their own notifications (mark as read)
-      allow update: if isAuthenticated() && 
+      allow update: if isAuthenticated() &&
                        resource.data.userId == request.auth.uid;
     }
-    
+
     // Bug reports collection
     match /bugReports/{reportId} {
       // Users can create bug reports
       allow create: if isAuthenticated();
-      
+
       // Only admins can read (implement admin check if needed)
       allow read: if false; // Disable for now, enable with admin check
     }

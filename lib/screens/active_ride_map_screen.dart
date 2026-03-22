@@ -8,6 +8,8 @@ import '../models/payment_model.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/payment_service.dart';
+import '../utils/live_map_copy.dart';
+import '../widgets/map_call_action_bar.dart';
 
 class ActiveRideMapScreen extends StatefulWidget {
   final RideModel ride;
@@ -36,16 +38,20 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
   bool _isDelivering = false;
   bool _isParcelCollected = false; // Track if parcel is already collected
   RideModel? _currentRide; // Streamed ride so map persists across status updates
-  Timer? _locationTimer;
+  /// Continuous GPS (real-time) instead of polling every few seconds.
+  StreamSubscription<Position>? _positionSubscription;
+  /// Traffic / road distance refresh (does not block live GPS marker).
+  Timer? _trafficRefreshTimer;
   final RideService _rideService = RideService();
   final PaymentService _paymentService = PaymentService();
   static const double _arrivalRadiusMeters = 50.0; // 50 meters radius to consider "arrived"
+  /// Throttle Firestore writes so sender can stream transporter position without excess cost.
+  DateTime? _lastRideLocationPush;
 
   @override
   void initState() {
     super.initState();
     _initializeMap();
-    _startLocationTracking();
   }
 
   Future<void> _initializeMap() async {
@@ -68,6 +74,7 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
           _isLoading = false;
         });
       }
+      await _startRealtimeLocationTracking();
     } catch (e) {
       debugPrint('Error initializing map: $e');
       if (mounted) {
@@ -78,18 +85,52 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
     }
   }
 
-  void _startLocationTracking() {
-    // Update location every 5 seconds
-    _locationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _getCurrentLocation();
-      // Update route with traffic info periodically
-      _updateRouteWithTraffic();
-      if (!_isParcelCollected) {
-        _checkArrivalAtPickup();
-      } else {
-        _checkArrivalAtDropoff();
+  /// Live GPS stream + periodic traffic-aware route refresh for distance/ETA.
+  Future<void> _startRealtimeLocationTracking() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
       }
-    });
+      if (permission == LocationPermission.deniedForever) return;
+
+      await _positionSubscription?.cancel();
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 8, // meters — updates as the transporter moves
+        ),
+      ).listen(
+        (position) {
+          if (!mounted) return;
+          setState(() {
+            _driverLat = position.latitude;
+            _driverLng = position.longitude;
+          });
+          _updateMap();
+          unawaited(_pushLiveLocationToRideIfDue(position));
+          if (!_isParcelCollected) {
+            _checkArrivalAtPickup();
+          } else {
+            _checkArrivalAtDropoff();
+          }
+        },
+        onError: (e) => debugPrint('Position stream: $e'),
+      );
+
+      _trafficRefreshTimer?.cancel();
+      _trafficRefreshTimer =
+          Timer.periodic(const Duration(seconds: 15), (_) {
+        _updateRouteWithTraffic();
+      });
+      unawaited(_updateRouteWithTraffic());
+    } catch (e) {
+      debugPrint('Real-time location: $e');
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -117,9 +158,30 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
           _driverLng = position.longitude;
         });
         _updateMap();
+        unawaited(_pushLiveLocationToRideIfDue(position));
       }
     } catch (e) {
       debugPrint('Error getting current location: $e');
+    }
+  }
+
+  Future<void> _pushLiveLocationToRideIfDue(Position position) async {
+    final id = widget.ride.id;
+    if (id == null) return;
+    final now = DateTime.now();
+    if (_lastRideLocationPush != null &&
+        now.difference(_lastRideLocationPush!) < const Duration(seconds: 8)) {
+      return;
+    }
+    _lastRideLocationPush = now;
+    try {
+      await _rideService.updateDriverLiveLocationOnRide(
+        id,
+        position.latitude,
+        position.longitude,
+      );
+    } catch (e) {
+      debugPrint('Live location sync: $e');
     }
   }
 
@@ -468,9 +530,9 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          _isParcelCollected ? 'Navigate to Delivery' : 'Navigate to Pickup',
+          LiveMapCopy.transporterNavTitle(toDelivery: _isParcelCollected),
           style: GoogleFonts.inter(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
             color: const Color(0xFF1E40AF),
           ),
@@ -494,8 +556,11 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
           }
           return _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : Stack(
-              children: [
+              : Column(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        children: [
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
                     target: initialPosition,
@@ -550,7 +615,49 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  _isParcelCollected ? 'Distance to Delivery' : 'Distance to Pickup',
+                                  LiveMapCopy.transporterNavTitle(
+                                      toDelivery: _isParcelCollected),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: const Color(0xFF1E40AF),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  LiveMapCopy.transporterSharedTripHint,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    height: 1.2,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.gps_fixed,
+                                      size: 12,
+                                      color: Colors.green.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        LiveMapCopy.transporterRealtimeGpsLine,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.green.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _isParcelCollected
+                                      ? 'Distance to delivery'
+                                      : 'Distance to pickup',
                                   style: GoogleFonts.inter(
                                     fontSize: 10,
                                     color: Colors.grey.shade600,
@@ -642,7 +749,9 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      _isParcelCollected ? 'Delivery Location' : 'Pickup Location',
+                                      _isParcelCollected
+                                          ? 'Delivery location'
+                                          : 'Pickup location (your next stop)',
                                       style: GoogleFonts.inter(
                                         fontSize: 10,
                                         color: Colors.grey.shade600,
@@ -754,8 +863,18 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                       ),
                     ),
                   ),
-              ],
-            );
+                        ],
+                      ),
+                    ),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                        child: MapCallActionBar(ride: currentRide),
+                      ),
+                    ),
+                  ],
+                );
         },
       ),
     );
@@ -854,7 +973,8 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
 
   @override
   void dispose() {
-    _locationTimer?.cancel();
+    _positionSubscription?.cancel();
+    _trafficRefreshTimer?.cancel();
     _mapController?.dispose();
     super.dispose();
   }

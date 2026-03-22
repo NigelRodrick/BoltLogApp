@@ -1259,6 +1259,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             rideService: _rideService,
             rideId: ride.id!,
             offerId: activeOffer.id!,
+            ride: ride,
             counterOffer: ride.counterOffer,
             price: ride.price,
           );
@@ -1686,6 +1687,8 @@ class _SenderOfferActionsBottomSheet extends StatefulWidget {
   final RideService rideService;
   final String rideId;
   final String offerId;
+  /// Snapshot when the sheet opened (used to build post-accept state without extra fetch).
+  final RideModel ride;
   final double? counterOffer;
   final double? price;
 
@@ -1694,6 +1697,7 @@ class _SenderOfferActionsBottomSheet extends StatefulWidget {
     required this.rideService,
     required this.rideId,
     required this.offerId,
+    required this.ride,
     this.counterOffer,
     this.price,
   });
@@ -1841,16 +1845,25 @@ class _SenderOfferActionsBottomSheetState
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
-                          Navigator.of(context).pop();
                           try {
                             await widget.rideService.respondToCounterOffer(
                               widget.rideId,
                               widget.offerId,
                               true,
                             );
-                            _snackOnParent(
-                              'Offer accepted. Waiting for transporter to accept delivery.',
-                              color: Colors.green,
+                            // Same state Firestore wrote — navigate immediately (no getRideById wait).
+                            final next =
+                                widget.ride.afterSenderAcceptedCounterOffer();
+                            if (!context.mounted) return;
+                            Navigator.of(context).pop();
+                            if (!widget.parentContext.mounted) return;
+                            Navigator.of(widget.parentContext)
+                                .pushReplacement(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ActiveRideTrackingScreen(
+                                  ride: next,
+                                ),
+                              ),
                             );
                           } catch (e) {
                             _snackOnParent('Error: ${e.toString()}',
