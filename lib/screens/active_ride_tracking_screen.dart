@@ -4,9 +4,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../models/ride_model.dart';
 import '../models/transporter_offer_model.dart';
+import '../models/payment_model.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
 import '../services/pricing_service.dart';
+import '../services/payment_service.dart';
 import '../utils/chat_utils.dart';
 import '../utils/negotiation_utils.dart';
 import '../utils/live_map_copy.dart';
@@ -170,7 +172,22 @@ class ActiveRideTrackingScreen extends StatelessWidget {
       case 'in_progress':
         return 'Driver is on the way to collect your parcel';
       case 'parcel_collected':
-        return 'Your parcel has been collected! Driver is on the way to deliver';
+        if (isSender) {
+          if (ride.awaitingSenderDeliveryConfirm) {
+            return 'The transporter marked the parcel as delivered. Please confirm receipt to complete the trip.';
+          }
+          if (ride.awaitingSenderPickupConfirm) {
+            return 'The transporter collected your parcel. Please confirm so we know you agree.';
+          }
+          return 'Your parcel has been collected! The transporter is on the way to deliver.';
+        }
+        if (ride.awaitingSenderDeliveryConfirm) {
+          return 'Waiting for the sender to confirm delivery in the app.';
+        }
+        if (ride.awaitingSenderPickupConfirm) {
+          return 'Waiting for the sender to confirm pickup in the app.';
+        }
+        return 'Parcel collected — heading to the drop-off.';
       case 'completed':
         return 'Your parcel has been delivered successfully!';
       case 'cancelled':
@@ -178,6 +195,160 @@ class ActiveRideTrackingScreen extends StatelessWidget {
       default:
         return 'Tracking your delivery...';
     }
+  }
+
+  /// Sender-only: confirm pickup / delivery (mirrors transporter actions in [RideService]).
+  List<Widget> _buildSenderConfirmationSection(BuildContext context, RideModel ride) {
+    if (!ride.awaitingSenderPickupConfirm && !ride.awaitingSenderDeliveryConfirm) {
+      return const [];
+    }
+    final rideService = RideService();
+    final paymentService = PaymentService();
+    final out = <Widget>[];
+
+    if (ride.awaitingSenderPickupConfirm) {
+      out.add(
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined, color: Colors.purple.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Confirm pickup',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'The transporter marked your parcel as collected. Confirm if that matches what happened.',
+                  style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (ride.id == null) return;
+                    try {
+                      await rideService.senderConfirmParcelCollected(ride.id!);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Pickup confirmed — thanks!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(
+                    'Confirm parcel collected',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      out.add(const SizedBox(height: 16));
+    }
+
+    if (ride.awaitingSenderDeliveryConfirm) {
+      out.add(
+        Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.verified_outlined, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Confirm delivery',
+                        style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'The transporter marked the parcel as delivered. Confirm receipt to complete the trip and release payment if applicable.',
+                  style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (ride.id == null) return;
+                    try {
+                      await rideService.senderConfirmDeliveryComplete(ride.id!);
+                      try {
+                        final payment = await paymentService.getPaymentForRide(ride.id!);
+                        if (payment != null && payment.status == PaymentStatus.pending) {
+                          await paymentService.completePayment(payment.id!);
+                        }
+                      } catch (e) {
+                        debugPrint('Payment completion after delivery confirm: $e');
+                      }
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Delivery confirmed — trip complete!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(
+                    'Confirm parcel delivered',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      out.add(const SizedBox(height: 20));
+    }
+
+    return out;
   }
 
   IconData _getStatusIcon(String status) {
@@ -319,6 +490,7 @@ class ActiveRideTrackingScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 _buildProgressTimeline(context, currentRide, isSender),
                 const SizedBox(height: 20),
+                if (isSender) ..._buildSenderConfirmationSection(context, currentRide),
                 // Map: pickup, dropoff, route + live transporter (streamed on ride doc)
                 if (showSenderLiveMap) ...[
                   _SenderTrackingMap(ride: currentRide, status: status),
@@ -1241,6 +1413,8 @@ class _SenderTrackingMapState extends State<_SenderTrackingMap> {
     final statusLabel = LiveMapCopy.senderMapTitle(
       rideStatus: widget.status,
       hasLiveGps: hasLive,
+      awaitingSenderPickupConfirm: widget.ride.awaitingSenderPickupConfirm,
+      awaitingSenderDeliveryConfirm: widget.ride.awaitingSenderDeliveryConfirm,
     );
 
     final markers = _buildMarkers();

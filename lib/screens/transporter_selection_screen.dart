@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -229,6 +231,9 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
   bool _lockNavigation = false;
   double _radiusKm = 25; // default radius for nearby transporters
 
+  StreamSubscription<RideModel?>? _senderTransporterDeclineSub;
+  bool _senderTransporterDeclineHandled = false;
+
   void _showNegotiationLockDialog() {
     showDialog(
       context: context,
@@ -259,6 +264,47 @@ class _TransporterSelectionScreenState extends State<TransporterSelectionScreen>
       _senderViewRecorded = true;
       RideService().updateSenderLastViewed(widget.rideId);
     });
+    _listenTransporterDeclinedAsSender();
+  }
+
+  /// If a transporter declines while sender is on this screen, snackbar + pop.
+  void _listenTransporterDeclinedAsSender() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    _senderTransporterDeclineSub =
+        RideService().streamRideById(widget.rideId).listen((ride) {
+      if (!mounted || ride == null || _senderTransporterDeclineHandled) return;
+      if (uid != ride.userId) return;
+      if (ride.lastReopenReason != 'transporter_declined') return;
+
+      _senderTransporterDeclineHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'A transporter declined this request. It is open again for others.',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            backgroundColor: const Color(0xFFEA580C),
+          ),
+        );
+        try {
+          await RideService().clearLastReopenReason(widget.rideId);
+        } catch (_) {}
+        if (mounted) Navigator.of(context).pop();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _senderTransporterDeclineSub?.cancel();
+    super.dispose();
   }
 
   @override

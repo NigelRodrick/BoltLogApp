@@ -7,11 +7,19 @@ class LiveMapCopy {
   static String senderMapTitle({
     required String rideStatus,
     required bool hasLiveGps,
+    bool awaitingSenderPickupConfirm = false,
+    bool awaitingSenderDeliveryConfirm = false,
   }) {
     switch (rideStatus) {
       case 'completed':
         return 'Delivered';
       case 'parcel_collected':
+        if (awaitingSenderDeliveryConfirm) {
+          return 'Transporter marked delivered — confirm receipt';
+        }
+        if (awaitingSenderPickupConfirm) {
+          return 'Pickup by transporter — please confirm';
+        }
         return hasLiveGps
             ? 'Live · Transporter travelling to delivery'
             : 'Parcel collected — waiting for live location…';

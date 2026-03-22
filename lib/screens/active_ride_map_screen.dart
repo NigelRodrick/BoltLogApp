@@ -4,10 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/ride_model.dart';
-import '../models/payment_model.dart';
 import '../services/ride_service.dart';
 import '../services/routing_service.dart';
-import '../services/payment_service.dart';
 import '../utils/live_map_copy.dart';
 import '../widgets/map_call_action_bar.dart';
 
@@ -43,7 +41,6 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
   /// Traffic / road distance refresh (does not block live GPS marker).
   Timer? _trafficRefreshTimer;
   final RideService _rideService = RideService();
-  final PaymentService _paymentService = PaymentService();
   static const double _arrivalRadiusMeters = 50.0; // 50 meters radius to consider "arrived"
   /// Throttle Firestore writes so sender can stream transporter position without excess cost.
   DateTime? _lastRideLocationPush;
@@ -469,30 +466,21 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
       // Update ride status to completed
       await _rideService.markDelivered(widget.ride.id!);
       
-      // Complete payment if cash on delivery
-      try {
-        final payment = await _paymentService.getPaymentForRide(widget.ride.id!);
-        if (payment != null && payment.status == PaymentStatus.pending) {
-          await _paymentService.completePayment(payment.id!);
-        }
-      } catch (e) {
-        // Payment completion failed, but delivery is confirmed
-        debugPrint('Error completing payment: $e');
-      }
-      
       if (mounted) {
+        setState(() {
+          _isDelivering = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Parcel delivery confirmed!'),
+            content: Text(
+              'Delivery marked. Waiting for the sender to confirm receipt in the app.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
-        
-        // Navigate back after a short delay
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
+        // Trip completes only after sender confirms (see ActiveRideTrackingScreen).
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) Navigator.of(context).pop();
         });
       }
     } catch (e) {
@@ -824,8 +812,11 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                       ),
                     ),
                   ),
-                // Confirm Parcel Delivered button (shown when arrived at dropoff)
-                if (_isParcelCollected && _hasArrivedAtDropoff)
+                // Confirm Parcel Delivered (until transporter marks delivered once)
+                if (_isParcelCollected &&
+                    _hasArrivedAtDropoff &&
+                    (currentRide.deliveryMarkedByDriverAt == null ||
+                        currentRide.deliveryMarkedByDriverAt!.isEmpty))
                   Positioned(
                     bottom: 16,
                     left: 16,
@@ -859,6 +850,39 @@ class _ActiveRideMapScreenState extends State<ActiveRideMapScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           elevation: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_isParcelCollected &&
+                    currentRide.deliveryMarkedByDriverAt != null &&
+                    currentRide.deliveryMarkedByDriverAt!.isNotEmpty &&
+                    currentRide.status != 'completed')
+                  Positioned(
+                    bottom: 16,
+                    left: 16,
+                    right: 16,
+                    child: Material(
+                      elevation: 2,
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.amber.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.hourglass_top, color: Colors.amber.shade800),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Waiting for the sender to confirm receipt in the app.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

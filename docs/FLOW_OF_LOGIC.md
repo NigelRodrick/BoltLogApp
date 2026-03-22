@@ -91,6 +91,9 @@ Both shells run **pending notification handling** in a post-frame callback:
 
 - **RideModel** fields used in flow: `status`, `userId`, `driverId`, `price`, `finalPrice`, `counterOffer`, `priceStatus`, `cancelledAt`, `cancelledBy`, `cancellationReason`, `acceptedTransporterId`, etc.
 - **Status progression**: `open` → (driver counters / sender accepts) → `pending` (negotiation) → driver accepts → `in_progress` → `parcel_collected` → `completed` (or `cancelled`).
+- **Sender confirmations (Firestore fields, client-only; no Cloud Function required)**:
+  - After transporter **markPickedUp**: `pickupMarkedByDriverAt` → sender taps **Confirm parcel collected** → `pickupConfirmedBySenderAt` (optional acknowledgment; status stays `parcel_collected`).
+  - After transporter **markDelivered**: `deliveryMarkedByDriverAt` (status still `parcel_collected`) → sender taps **Confirm parcel delivered** → `senderConfirmDeliveryComplete` sets `status: completed`, `completedAt`, `deliveryConfirmedBySenderAt`.
 - **ActiveRideTrackingScreen** shows status message and timeline; when `driverId != null`, sender can open **ChatScreen** or (when completed) **RatingScreen**.
 
 ---

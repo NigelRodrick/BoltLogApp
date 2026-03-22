@@ -40,6 +40,16 @@ class RideModel {
   final double? driverLiveLat;
   final double? driverLiveLng;
   final String? driverLocationUpdatedAt;
+  /// Why the ride was last set back to [status] `open`: `transporter_declined` | `sender_declined` (for client UX).
+  final String? lastReopenReason;
+  /// Transporter tapped "parcel collected" (ISO8601).
+  final String? pickupMarkedByDriverAt;
+  /// Sender acknowledged pickup in-app (ISO8601).
+  final String? pickupConfirmedBySenderAt;
+  /// Transporter tapped "delivered" — [status] stays `parcel_collected` until sender confirms.
+  final String? deliveryMarkedByDriverAt;
+  /// Sender confirmed receipt; aligns with [completedAt] when [status] is `completed`.
+  final String? deliveryConfirmedBySenderAt;
 
   RideModel({
     this.id,
@@ -76,7 +86,22 @@ class RideModel {
     this.driverLiveLat,
     this.driverLiveLng,
     this.driverLocationUpdatedAt,
+    this.lastReopenReason,
+    this.pickupMarkedByDriverAt,
+    this.pickupConfirmedBySenderAt,
+    this.deliveryMarkedByDriverAt,
+    this.deliveryConfirmedBySenderAt,
   });
+
+  /// Driver said parcel collected; sender has not confirmed yet.
+  bool get awaitingSenderPickupConfirm =>
+      (pickupMarkedByDriverAt != null && pickupMarkedByDriverAt!.isNotEmpty) &&
+      (pickupConfirmedBySenderAt == null || pickupConfirmedBySenderAt!.isEmpty);
+
+  /// Driver said delivered; sender must confirm before [status] becomes `completed`.
+  bool get awaitingSenderDeliveryConfirm =>
+      (deliveryMarkedByDriverAt != null && deliveryMarkedByDriverAt!.isNotEmpty) &&
+      status != 'completed';
 
   Map<String, dynamic> toMap() {
     final map = <String, dynamic>{
@@ -115,6 +140,19 @@ class RideModel {
     if (driverLiveLng != null) map['driverLiveLng'] = driverLiveLng;
     if (driverLocationUpdatedAt != null) {
       map['driverLocationUpdatedAt'] = driverLocationUpdatedAt;
+    }
+    if (lastReopenReason != null) map['lastReopenReason'] = lastReopenReason;
+    if (pickupMarkedByDriverAt != null) {
+      map['pickupMarkedByDriverAt'] = pickupMarkedByDriverAt;
+    }
+    if (pickupConfirmedBySenderAt != null) {
+      map['pickupConfirmedBySenderAt'] = pickupConfirmedBySenderAt;
+    }
+    if (deliveryMarkedByDriverAt != null) {
+      map['deliveryMarkedByDriverAt'] = deliveryMarkedByDriverAt;
+    }
+    if (deliveryConfirmedBySenderAt != null) {
+      map['deliveryConfirmedBySenderAt'] = deliveryConfirmedBySenderAt;
     }
     return map;
   }
@@ -160,6 +198,11 @@ class RideModel {
       driverLiveLat: driverLiveLat,
       driverLiveLng: driverLiveLng,
       driverLocationUpdatedAt: driverLocationUpdatedAt,
+      lastReopenReason: null,
+      pickupMarkedByDriverAt: null,
+      pickupConfirmedBySenderAt: null,
+      deliveryMarkedByDriverAt: null,
+      deliveryConfirmedBySenderAt: null,
     );
   }
 
@@ -199,6 +242,11 @@ class RideModel {
       driverLiveLat: (map['driverLiveLat'] as num?)?.toDouble(),
       driverLiveLng: (map['driverLiveLng'] as num?)?.toDouble(),
       driverLocationUpdatedAt: map['driverLocationUpdatedAt'] as String?,
+      lastReopenReason: map['lastReopenReason'] as String?,
+      pickupMarkedByDriverAt: map['pickupMarkedByDriverAt'] as String?,
+      pickupConfirmedBySenderAt: map['pickupConfirmedBySenderAt'] as String?,
+      deliveryMarkedByDriverAt: map['deliveryMarkedByDriverAt'] as String?,
+      deliveryConfirmedBySenderAt: map['deliveryConfirmedBySenderAt'] as String?,
     );
   }
 }

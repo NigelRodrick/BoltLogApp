@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -35,6 +36,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   bool _routeRequested = false;
   bool _lockNavigation = false;
 
+  /// Transporter: sender declined negotiation. Sender: transporter declined request.
+  StreamSubscription<RideModel?>? _rideDeclineSub;
+  RideModel? _previousRideSnapshot;
+  bool _transporterExitAfterSenderDeclineHandled = false;
+  bool _senderExitAfterTransporterDeclineHandled = false;
+
   void _showNegotiationLockDialog() {
     showDialog(
       context: context,
@@ -61,6 +68,76 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     _trackView();
     // Update last seen every 20 seconds while viewing
     _startViewerTracking();
+    _listenDeclineExitSignals();
+  }
+
+  /// Transporter: sender declined → pop. Sender: transporter declined → snackbar + pop.
+  void _listenDeclineExitSignals() {
+    final rideId = widget.ride.id;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (rideId == null || uid == null) return;
+
+    _rideDeclineSub = _rideService.streamRideById(rideId).listen((ride) {
+      if (!mounted || ride == null) return;
+
+      if (uid != ride.userId) {
+        if (_transporterExitAfterSenderDeclineHandled) {
+          _previousRideSnapshot = ride;
+          return;
+        }
+        final wasPendingWithMe = _previousRideSnapshot?.status == 'pending' &&
+            _previousRideSnapshot?.negotiatingTransporterId == uid;
+        final nowOpen = ride.status == 'open' &&
+            (ride.negotiatingTransporterId == null ||
+                ride.negotiatingTransporterId!.trim().isEmpty);
+
+        if (wasPendingWithMe && nowOpen) {
+          _transporterExitAfterSenderDeclineHandled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Sender declined this service. Returning to your dashboard.',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                backgroundColor: const Color(0xFFEA580C),
+              ),
+            );
+            Navigator.of(context).pop();
+          });
+        }
+      } else {
+        if (!_senderExitAfterTransporterDeclineHandled &&
+            ride.lastReopenReason == 'transporter_declined') {
+          _senderExitAfterTransporterDeclineHandled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'A transporter declined this request. It is open again for others.',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                backgroundColor: const Color(0xFFEA580C),
+              ),
+            );
+            try {
+              await _rideService.clearLastReopenReason(rideId);
+            } catch (_) {}
+            if (mounted) Navigator.of(context).pop();
+          });
+        }
+      }
+
+      _previousRideSnapshot = ride;
+    });
   }
 
   void _trackView() async {
@@ -92,7 +169,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
 
   @override
   void dispose() {
-    // Stop tracking when screen is closed
+    _rideDeclineSub?.cancel();
     super.dispose();
   }
 

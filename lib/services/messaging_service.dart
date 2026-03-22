@@ -26,6 +26,43 @@ class MessagingService {
     }
   }
 
+  /// Sender declined this transporter's offer/counter-offer; request is open again.
+  /// Visible in ride chat for both parties.
+  Future<String> sendSenderDeclinedServiceMessage({
+    required String rideId,
+    required String senderId,
+    required String transporterId,
+  }) async {
+    final message = MessageModel(
+      rideId: rideId,
+      senderId: senderId,
+      receiverId: transporterId,
+      message:
+          'Service update: the sender has declined this offer. The request is open again for other transporters.',
+      timestamp: DateTime.now(),
+      isRead: false,
+    );
+    return sendMessage(message);
+  }
+
+  /// Transporter declined the request; sender sees this in chat.
+  Future<String> sendTransporterDeclinedServiceMessage({
+    required String rideId,
+    required String transporterId,
+    required String senderId,
+  }) async {
+    final message = MessageModel(
+      rideId: rideId,
+      senderId: transporterId,
+      receiverId: senderId,
+      message:
+          'Service update: I have declined this request. It is open again for other transporters.',
+      timestamp: DateTime.now(),
+      isRead: false,
+    );
+    return sendMessage(message);
+  }
+
   /// Sends a persistent chat message when a transporter is selected for a delivery.
   /// Both sender and transporter see it in the ride chat.
   Future<String> sendTransporterSelectedMessage({

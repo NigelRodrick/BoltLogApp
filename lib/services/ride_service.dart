@@ -623,18 +623,45 @@ class RideService {
     try {
       final offerDoc = await _offerCollection(rideId).doc(offerId).get();
       if (!offerDoc.exists) return;
+      final offerData = offerDoc.data() as Map<String, dynamic>?;
+      final transporterId = offerData?['transporterId'] as String?;
+      final rideSnap = await _firestore.collection('rides').doc(rideId).get();
+      final senderUserId = rideSnap.data()?['userId'] as String?;
+
       await _firestore.collection('rides').doc(rideId).update({
         'status': 'open',
         'counterOffer': null,
         'priceStatus': null,
         'negotiatingTransporterId': null,
         'lastCounterOfferBy': null,
+        'lastReopenReason': 'sender_declined',
         'updatedAt': DateTime.now().toIso8601String(),
       });
       await _offerCollection(rideId).doc(offerId).update({
         'status': 'rejected',
         'updatedAt': DateTime.now().toIso8601String(),
       });
+
+      if (transporterId != null && senderUserId != null) {
+        try {
+          await NotificationService().createNotification(
+            userId: transporterId,
+            type: 'offer_declined',
+            title: 'Offer Declined',
+            message:
+                'The sender has declined your offer. This request is open to other transporters.',
+            rideId: rideId,
+            data: {'rideId': rideId},
+          );
+          await MessagingService().sendSenderDeclinedServiceMessage(
+            rideId: rideId,
+            senderId: senderUserId,
+            transporterId: transporterId,
+          );
+        } catch (e) {
+          debugPrint('rejectOfferAndReopenRide notify/chat: $e');
+        }
+      }
     } catch (e) {
       throw Exception('Error rejecting offer and reopening ride: $e');
     }
@@ -654,6 +681,7 @@ class RideService {
         'priceStatus': null,
         'negotiatingTransporterId': null,
         'lastCounterOfferBy': null,
+        'lastReopenReason': 'transporter_declined',
         'updatedAt': DateTime.now().toIso8601String(),
       });
       for (final doc in snapshot.docs) {
@@ -662,8 +690,42 @@ class RideService {
           'updatedAt': DateTime.now().toIso8601String(),
         });
       }
+
+      final rideDoc = await _firestore.collection('rides').doc(rideId).get();
+      final senderId = rideDoc.data()?['userId'] as String?;
+      if (senderId != null) {
+        try {
+          await NotificationService().createNotification(
+            userId: senderId,
+            type: 'transporter_declined_request',
+            title: 'Transporter Declined',
+            message:
+                'A transporter has declined your request. It is open again for other transporters.',
+            rideId: rideId,
+            data: {'rideId': rideId},
+          );
+          await MessagingService().sendTransporterDeclinedServiceMessage(
+            rideId: rideId,
+            transporterId: transporterId,
+            senderId: senderId,
+          );
+        } catch (e) {
+          debugPrint('transporterDeclineRequest notify/chat: $e');
+        }
+      }
     } catch (e) {
       throw Exception('Error declining request: $e');
+    }
+  }
+
+  /// Clears [RideModel.lastReopenReason] after the sender has seen the transporter-decline UX.
+  Future<void> clearLastReopenReason(String rideId) async {
+    try {
+      await _firestore.collection('rides').doc(rideId).update({
+        'lastReopenReason': FieldValue.delete(),
+      });
+    } catch (e) {
+      debugPrint('clearLastReopenReason: $e');
     }
   }
 
@@ -810,7 +872,12 @@ class RideService {
 
   // Mark as picked up / parcel collected (notify sender so both see status)
   Future<void> markPickedUp(String rideId) async {
-    await updateRideStatus(rideId, 'parcel_collected');
+    final now = DateTime.now().toIso8601String();
+    await _firestore.collection('rides').doc(rideId).update({
+      'status': 'parcel_collected',
+      'pickupMarkedByDriverAt': now,
+      'updatedAt': now,
+    });
     try {
       final rideDoc = await _firestore.collection('rides').doc(rideId).get();
       final userId = rideDoc.data()?['userId'] as String?;
@@ -820,7 +887,8 @@ class RideService {
           userId: userId,
           type: 'parcel_collected',
           title: 'Parcel Collected',
-          message: 'Your parcel has been collected. Driver is on the way to deliver.',
+          message:
+              'The transporter collected your parcel. Please open the app and confirm pickup.',
           rideId: rideId,
         );
       }
@@ -829,9 +897,97 @@ class RideService {
     }
   }
 
-  // Mark as delivered
+  /// Sender acknowledges that they agree the parcel was collected.
+  Future<void> senderConfirmParcelCollected(String rideId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) throw Exception('Not signed in');
+    final ref = _firestore.collection('rides').doc(rideId);
+    final snap = await ref.get();
+    if (!snap.exists) throw Exception('Ride not found');
+    final data = snap.data()!;
+    if (data['userId'] != uid) {
+      throw Exception('Only the sender can confirm pickup');
+    }
+    final now = DateTime.now().toIso8601String();
+    await ref.update({
+      'pickupConfirmedBySenderAt': now,
+      'updatedAt': now,
+    });
+  }
+
+  /// Transporter marks delivery complete — [status] stays `parcel_collected` until [senderConfirmDeliveryComplete].
   Future<void> markDelivered(String rideId) async {
-    await updateRideStatus(rideId, 'completed');
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) throw Exception('Not signed in');
+    final ref = _firestore.collection('rides').doc(rideId);
+    final snap = await ref.get();
+    if (!snap.exists) throw Exception('Ride not found');
+    final data = snap.data()!;
+    final driverId = data['driverId'] as String?;
+    if (driverId != uid) {
+      throw Exception('Only the assigned transporter can mark delivered');
+    }
+    if (data['deliveryMarkedByDriverAt'] != null &&
+        (data['deliveryMarkedByDriverAt'] as String).isNotEmpty) {
+      throw Exception('Already marked — waiting for sender to confirm delivery');
+    }
+    final now = DateTime.now().toIso8601String();
+    await ref.update({
+      'deliveryMarkedByDriverAt': now,
+      'updatedAt': now,
+    });
+    final senderId = data['userId'] as String?;
+    if (senderId != null) {
+      try {
+        await NotificationService().createNotification(
+          userId: senderId,
+          type: 'delivery_pending_sender_confirm',
+          title: 'Confirm Delivery',
+          message:
+              'The transporter marked the parcel as delivered. Please confirm in the app to complete the trip.',
+          rideId: rideId,
+        );
+      } catch (e) {
+        debugPrint('notify sender delivery pending: $e');
+      }
+    }
+  }
+
+  /// Sender confirms receipt — sets [status] to `completed` and finalizes the trip.
+  Future<void> senderConfirmDeliveryComplete(String rideId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) throw Exception('Not signed in');
+    final ref = _firestore.collection('rides').doc(rideId);
+    final snap = await ref.get();
+    if (!snap.exists) throw Exception('Ride not found');
+    final data = snap.data()!;
+    if (data['userId'] != uid) {
+      throw Exception('Only the sender can confirm delivery');
+    }
+    if (data['deliveryMarkedByDriverAt'] == null) {
+      throw Exception('Transporter has not marked delivery yet');
+    }
+    final now = DateTime.now().toIso8601String();
+    await ref.update({
+      'status': 'completed',
+      'completedAt': now,
+      'deliveryConfirmedBySenderAt': now,
+      'updatedAt': now,
+    });
+    final driverId = data['driverId'] as String?;
+    if (driverId != null) {
+      try {
+        await NotificationService().createNotification(
+          userId: driverId,
+          type: 'delivery_confirmed_by_sender',
+          title: 'Delivery Confirmed',
+          message: 'The sender confirmed receipt. This delivery is complete.',
+          rideId: rideId,
+        );
+      } catch (e) {
+        debugPrint('notify transporter delivery confirmed: $e');
+      }
+    }
   }
 
   // Track when the sender views the request (so transporter can see "Sender has viewed")
@@ -974,6 +1130,7 @@ class RideService {
         'status': 'pending',
         'lastCounterOfferBy': 'transporter',
         'negotiatingTransporterId': transporterId,
+        'lastReopenReason': FieldValue.delete(),
         'updatedAt': DateTime.now().toIso8601String(),
       });
 
@@ -1035,6 +1192,7 @@ class RideService {
           'status': 'pending',
           'lastCounterOfferBy': 'sender',
           'negotiatingTransporterId': transporterId,
+          'lastReopenReason': FieldValue.delete(),
           'updatedAt': DateTime.now().toIso8601String(),
         });
 
@@ -1108,6 +1266,7 @@ class RideService {
             'status': 'pending',
             'lastCounterOfferBy': 'sender',
             'negotiatingTransporterId': transporterId,
+            'lastReopenReason': FieldValue.delete(),
             'updatedAt': DateTime.now().toIso8601String(),
           });
 
@@ -1137,6 +1296,7 @@ class RideService {
             'status': 'pending',
             'acceptedTransporterId': transporterId,
             'negotiatingTransporterId': transporterId, // keep for clarity; this transporter was chosen
+            'lastReopenReason': FieldValue.delete(),
             'updatedAt': DateTime.now().toIso8601String(),
           };
           transaction.update(rideRef, updateData);
@@ -1161,12 +1321,15 @@ class RideService {
           // Don't deduct fee yet - deduction happens when transporter accepts ride
           // Fee will be deducted in acceptRide() after sender has approved
         } else {
-          // Reject the counter-offer - clear negotiation so any transporter can negotiate
+          // Decline: reopen as a normal open request (same idea as [rejectOfferAndReopenRide]).
+          // Any transporter can see/offer again; sender home shows "Waiting for transporters".
           transaction.update(rideRef, {
             'counterOffer': null,
-            'priceStatus': 'rejected',
+            'priceStatus': null,
             'status': 'open',
             'negotiatingTransporterId': null,
+            'lastCounterOfferBy': null,
+            'lastReopenReason': 'sender_declined',
             'updatedAt': DateTime.now().toIso8601String(),
           });
 
@@ -1236,11 +1399,13 @@ class RideService {
         }
       }
 
-      // If sender declined the counter-offer (no new amount), notify transporter
+      // If sender declined the counter-offer (no new amount), notify + chat message
       if (!accepted && senderCounterOffer == null) {
         final offerDoc = await _offerCollection(rideId).doc(offerId).get();
         final offerData = offerDoc.data();
         final transporterId = offerData?['transporterId'] as String?;
+        final rideDoc = await _firestore.collection('rides').doc(rideId).get();
+        final senderUserId = rideDoc.data()?['userId'] as String?;
 
         if (transporterId != null) {
           final notificationService = NotificationService();
@@ -1255,6 +1420,17 @@ class RideService {
               'rideId': rideId,
             },
           );
+          if (senderUserId != null) {
+            try {
+              await MessagingService().sendSenderDeclinedServiceMessage(
+                rideId: rideId,
+                senderId: senderUserId,
+                transporterId: transporterId,
+              );
+            } catch (e) {
+              debugPrint('sendSenderDeclinedServiceMessage: $e');
+            }
+          }
         }
       }
     } catch (e) {
