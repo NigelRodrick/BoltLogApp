@@ -1,6 +1,6 @@
-# Builds iOS on macOS (unsigned archive — sign locally or in App Store Connect).
-# Download: GitHub → Actions → "Build iOS archive" → Artifacts → boltlog-ios-archive
-# Trigger: push to main (when ios/lib paths change), or Actions → Run workflow.
+# iOS archive on macOS (unsigned). Artifact: boltlog-ios-archive.
+# AUTO: every push to main/master + manual Run workflow.
+# PRs: builds when app-related paths change.
 name: Build iOS archive
 
 on:
@@ -9,18 +9,26 @@ on:
     branches:
       - main
       - master
+  pull_request:
+    branches:
+      - main
+      - master
     paths:
       - "lib/**"
       - "ios/**"
+      - "assets/**"
       - "pubspec.yaml"
+      - "pubspec.lock"
+      - "firebase_options.dart"
+      - "analysis_options.yaml"
       - ".github/workflows/build-ios.yml"
 
 permissions:
   contents: read
-  actions: write # upload-artifact
+  actions: write
 
 concurrency:
-  group: build-ios-${{ github.ref }}
+  group: build-ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,8 +53,6 @@ jobs:
         working-directory: ios
         run: pod install
 
-      # Build an unsigned iOS archive. With --no-codesign, Flutter does NOT create an .ipa,
-      # it only creates Runner.xcarchive in build/ios/archive.
       - name: Build iOS archive (no codesign)
         run: flutter build ipa --release --no-codesign
 
@@ -57,4 +63,3 @@ jobs:
           path: build/ios/archive/
           if-no-files-found: error
           retention-days: 90
-

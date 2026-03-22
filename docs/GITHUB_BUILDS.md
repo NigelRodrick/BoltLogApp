@@ -2,6 +2,16 @@
 
 Binaries are **not** stored in git. They are built in **GitHub Actions** and kept as **Artifacts** on each run.
 
+## When builds run automatically
+
+| Event | Android | iOS |
+|--------|---------|-----|
+| **Push to `main` / `master`** | Yes — every push | Yes — every push |
+| **Pull request** | If `lib/`, `android/`, `assets/`, `pubspec*`, etc. change | Same (plus `ios/`) |
+| **Manual** | Actions → **Build Android APK** → **Run workflow** | Actions → **Build iOS archive** → **Run workflow** |
+
+So merging to `main` always produces fresh **boltlog-apk** and **boltlog-ios-archive** artifacts (when the workflows succeed).
+
 ## Get the APK (Android)
 
 1. Open the repo on **GitHub** → **Actions**
@@ -15,11 +25,6 @@ Binaries are **not** stored in git. They are built in **GitHub Actions** and kep
 2. Latest successful run → **Artifacts** → **`boltlog-ios-archive`**
 
 The CI build uses **`flutter build ipa --release --no-codesign`**. You still need **signing** (Apple Developer) to install on devices or submit to the App Store — use Xcode or Transporter with your certificates/profiles.
-
-## When workflows run
-
-- **Push to `main`** when relevant paths change (`lib/`, `android/` or `ios/`, `pubspec.yaml`, etc.)
-- **Any time:** Actions → select the workflow → **Run workflow**
 
 ## Firestore rules deploy
 
